@@ -48,8 +48,31 @@ async function copyOrderMessage(message) {
   }
 }
 
-function buildTelegramShareUrl(message) {
-  return `https://t.me/share/url?text=${encodeURIComponent(message)}`;
+function buildTelegramShareUrls(message) {
+  const text = encodeURIComponent(message);
+  return {
+    app: `tg://msg_url?text=${text}`,
+    web: `https://t.me/share/url?text=${text}`
+  };
+}
+
+function openTelegramShare(message) {
+  const urls = buildTelegramShareUrls(message);
+  let fallbackTimer;
+
+  function cancelFallback() {
+    window.clearTimeout(fallbackTimer);
+    document.removeEventListener("visibilitychange", cancelFallback);
+    window.removeEventListener("pagehide", cancelFallback);
+  }
+
+  document.addEventListener("visibilitychange", cancelFallback);
+  window.addEventListener("pagehide", cancelFallback);
+
+  window.location.href = urls.app;
+  fallbackTimer = window.setTimeout(() => {
+    window.location.href = urls.web;
+  }, 1200);
 }
 
 export function CartDrawer({ cart, open, onClose, onRemove, onQuantity, onOrderPlaced }) {
@@ -83,16 +106,14 @@ export function CartDrawer({ cart, open, onClose, onRemove, onQuantity, onOrderP
       });
       const orderMessage = buildTelegramOrderMessage(response.order);
       const copied = await copyOrderMessage(orderMessage);
-      const telegramUrl = buildTelegramShareUrl(
-        telegramUsername ? `${orderMessage}\n\nSend to @${telegramUsername}` : orderMessage
-      );
+      const telegramMessage = telegramUsername ? `${orderMessage}\n\nSend to @${telegramUsername}` : orderMessage;
 
       setStatus(
         `Order #${response.order.id} saved. ${copied ? "Order message copied." : "Telegram will open with the order details."}`
       );
       setCheckout(emptyCheckout);
       onOrderPlaced?.();
-      window.location.assign(telegramUrl);
+      openTelegramShare(telegramMessage);
     } catch (error) {
       setStatus(error.message || "Checkout failed. Please try again.");
     } finally {
