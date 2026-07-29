@@ -35,16 +35,23 @@ async function copyOrderMessage(message) {
   }
 }
 
-function buildTelegramShareUrls(message) {
+function buildTelegramUrls(message) {
   const text = encodeURIComponent(message);
+  if (telegramUsername) {
+    return {
+      app: `tg://resolve?domain=${encodeURIComponent(telegramUsername)}`,
+      web: `https://t.me/${encodeURIComponent(telegramUsername)}`
+    };
+  }
+
   return {
     app: `tg://msg_url?text=${text}`,
     web: `https://t.me/share/url?text=${text}`
   };
 }
 
-function openTelegramShare(message) {
-  const urls = buildTelegramShareUrls(message);
+function openTelegramOrderChat(message) {
+  const urls = buildTelegramUrls(message);
   let fallbackTimer;
 
   function cancelFallback() {
@@ -75,9 +82,9 @@ export function CartDrawer({ cart, open, onClose, onRemove, onQuantity, onOrderP
       const orderMessage = buildTelegramOrderMessage(cart, subtotal);
       const copied = await copyOrderMessage(orderMessage);
 
-      setStatus(copied ? "Order details copied. Telegram is opening." : "Telegram is opening with the order details.");
+      setStatus(copied ? "Order details copied. Telegram chat is opening." : "Telegram chat is opening.");
       onOrderPlaced?.();
-      openTelegramShare(orderMessage);
+      openTelegramOrderChat(orderMessage);
     } catch (error) {
       setStatus(error.message || "Telegram checkout failed. Please try again.");
     }
