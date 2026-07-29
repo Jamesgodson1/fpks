@@ -78,7 +78,6 @@ export default function App() {
         }
       ];
     });
-    setCartOpen(true);
   }
 
   function removeFromCart(cartId) {
