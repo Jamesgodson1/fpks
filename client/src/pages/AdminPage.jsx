@@ -11,7 +11,7 @@ import {
   updateAdminOrderStatus,
   updateAdminContent,
   updateAdminSettings,
-  uploadAdminImage
+  uploadAdminAsset
 } from "../lib/storefrontApi";
 import { fallbackStorefront } from "../data/storefrontData";
 import { scoreProductSeo } from "../lib/seo";
@@ -26,6 +26,7 @@ const emptyProduct = {
   inventory: 0,
   status: "active",
   image: "",
+  video: "",
   gallery: [],
   variants: [{ name: "Single", price: 0, inventory: 0 }],
   hues: ["hsl(342, 30%, 18%)", "hsl(342, 40%, 35%)", "hsl(342, 50%, 60%)"],
@@ -171,6 +172,7 @@ export function AdminPage() {
       seoFocusKeyphrase: selectedProduct.seoFocusKeyphrase || "",
       canonicalUrl: selectedProduct.canonicalUrl || "",
       imageAlt: selectedProduct.imageAlt || "",
+      video: selectedProduct.video || "",
       brand: selectedProduct.brand || "",
       sku: selectedProduct.sku || "",
       reviewRating: selectedProduct.reviewRating ? Number(selectedProduct.reviewRating) : null,
@@ -584,14 +586,16 @@ function ProductForm({ product, setProduct, onSubmit, categories = [] }) {
     }));
   }
 
-  async function uploadImage(event, target) {
+  async function uploadAsset(event, target) {
     const file = event.target.files?.[0];
     if (!file) return;
     setUploading(target);
     try {
-      const asset = await uploadAdminImage(file, product.title || file.name);
+      const asset = await uploadAdminAsset(file, product.title || file.name);
       if (target === "image") {
         update("image", asset.url);
+      } else if (target === "video") {
+        update("video", asset.url);
       } else {
         setProduct((current) => ({
           ...current,
@@ -631,14 +635,20 @@ function ProductForm({ product, setProduct, onSubmit, categories = [] }) {
       <label>Primary image URL<input value={product.image || ""} onChange={(event) => update("image", event.target.value)} /></label>
       <label className="admin-upload">
         Upload primary image
-        <input type="file" accept="image/*" onChange={(event) => uploadImage(event, "image")} />
+        <input type="file" accept="image/*" onChange={(event) => uploadAsset(event, "image")} />
         {uploading === "image" ? <span>Uploading...</span> : null}
       </label>
       <label>Gallery image URLs<textarea rows="4" value={(product.gallery || []).join("\n")} onChange={(event) => update("gallery", event.target.value)} /></label>
       <label className="admin-upload">
         Upload gallery image
-        <input type="file" accept="image/*" onChange={(event) => uploadImage(event, "gallery")} />
+        <input type="file" accept="image/*" onChange={(event) => uploadAsset(event, "gallery")} />
         {uploading === "gallery" ? <span>Uploading...</span> : null}
+      </label>
+      <label>Product video URL<input value={product.video || ""} onChange={(event) => update("video", event.target.value)} /></label>
+      <label className="admin-upload">
+        Upload product video
+        <input type="file" accept="video/*" onChange={(event) => uploadAsset(event, "video")} />
+        {uploading === "video" ? <span>Uploading...</span> : null}
       </label>
       <div className="admin-variant-editor">
         <div className="admin-variant-head">

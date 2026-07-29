@@ -120,7 +120,7 @@ export async function updateAdminOrderStatus(id, status) {
   });
 }
 
-export async function uploadAdminImage(file, altText = "") {
+export async function uploadAdminAsset(file, altText = "") {
   const token = localStorage.getItem("fuelpacks_admin_token");
   const formData = new FormData();
   formData.append("file", file);
@@ -133,7 +133,9 @@ export async function uploadAdminImage(file, altText = "") {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.message || "Image upload failed.");
+    throw new Error(data.message || "File upload failed.");
   }
   return data;
 }
+
+export const uploadAdminImage = uploadAdminAsset;

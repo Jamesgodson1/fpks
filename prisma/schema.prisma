@@ -151,6 +151,7 @@ model StoreProduct {
   inventory    Int      @default(0)
   status       String   @default("active")
   image        String?  @db.Text
+  video        String?  @db.Text
   gallery      Json?
   variants     Json?
   hues         Json?

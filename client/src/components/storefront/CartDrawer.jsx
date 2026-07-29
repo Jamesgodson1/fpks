@@ -1,14 +1,4 @@
 import { useState } from "react";
-import { createStoreOrder } from "../../lib/storefrontApi";
-
-const emptyCheckout = {
-  customer: "",
-  phone: "",
-  email: "",
-  signal: "",
-  deliveryArea: "",
-  notes: ""
-};
 
 const telegramUsername = String(import.meta.env.VITE_TELEGRAM_ORDER_USERNAME || "")
   .replace(/^@/, "")
@@ -18,23 +8,20 @@ function getLinePrice(item) {
   return Number(item.selectedVariant?.price ?? item.price ?? 0);
 }
 
-function buildTelegramOrderMessage(order) {
-  const items = Array.isArray(order.items) ? order.items : [];
+function buildTelegramOrderMessage(cart, subtotal) {
   return [
     "New Fuelpacks order",
     "",
-    `Order ID: #${order.id}`,
-    `Customer: ${order.customer}`,
-    `Phone: ${order.phone || "Not provided"}`,
-    `Email: ${order.email || "Not provided"}`,
-    `Total: $${Number(order.total || 0).toFixed(2)}`,
+    `Total: $${Number(subtotal || 0).toFixed(2)}`,
     "",
     "Items:",
-    ...items.map(
+    ...cart.map(
       (item) =>
-        `- ${item.quantity} x ${item.title}${item.variant ? ` (${item.variant})` : ""} - $${Number(item.lineTotal || 0).toFixed(2)}`
+        `- ${item.quantity} x ${item.title}${item.selectedVariant?.name ? ` (${item.selectedVariant.name})` : ""} - $${(
+          getLinePrice(item) * item.quantity
+        ).toFixed(2)}`
     ),
-    order.notes ? `\n${order.notes}` : ""
+    telegramUsername ? `\nSend to @${telegramUsername}` : ""
   ].join("\n");
 }
 
@@ -76,48 +63,23 @@ function openTelegramShare(message) {
 }
 
 export function CartDrawer({ cart, open, onClose, onRemove, onQuantity, onOrderPlaced }) {
-  const [checkout, setCheckout] = useState(emptyCheckout);
   const [status, setStatus] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const subtotal = cart.reduce((sum, item) => sum + getLinePrice(item) * item.quantity, 0);
 
-  function updateCheckout(key, value) {
-    setCheckout((current) => ({ ...current, [key]: value }));
-  }
-
-  async function submitOrder(event) {
+  async function sendTelegramOrder(event) {
     event.preventDefault();
-    if (!cart.length || submitting) return;
+    if (!cart.length) return;
 
-    setSubmitting(true);
     setStatus("");
     try {
-      const response = await createStoreOrder({
-        ...checkout,
-        items: cart.map((item) => ({
-          id: item.id,
-          slug: item.slug,
-          title: item.title,
-          image: item.image,
-          variant: item.selectedVariant?.name || "",
-          price: getLinePrice(item),
-          quantity: item.quantity
-        }))
-      });
-      const orderMessage = buildTelegramOrderMessage(response.order);
+      const orderMessage = buildTelegramOrderMessage(cart, subtotal);
       const copied = await copyOrderMessage(orderMessage);
-      const telegramMessage = telegramUsername ? `${orderMessage}\n\nSend to @${telegramUsername}` : orderMessage;
 
-      setStatus(
-        `Order #${response.order.id} saved. ${copied ? "Order message copied." : "Telegram will open with the order details."}`
-      );
-      setCheckout(emptyCheckout);
+      setStatus(copied ? "Order details copied. Telegram is opening." : "Telegram is opening with the order details.");
       onOrderPlaced?.();
-      openTelegramShare(telegramMessage);
+      openTelegramShare(orderMessage);
     } catch (error) {
-      setStatus(error.message || "Checkout failed. Please try again.");
-    } finally {
-      setSubmitting(false);
+      setStatus(error.message || "Telegram checkout failed. Please try again.");
     }
   }
 
@@ -136,7 +98,7 @@ export function CartDrawer({ cart, open, onClose, onRemove, onQuantity, onOrderP
         </header>
 
         {cart.length ? (
-          <form className="fp-checkout-form" onSubmit={submitOrder}>
+          <form className="fp-checkout-form" onSubmit={sendTelegramOrder}>
             <div className="fp-cart-lines">
               {cart.map((item) => (
                 <article className="fp-cart-line" key={item.cartId}>
@@ -162,71 +124,16 @@ export function CartDrawer({ cart, open, onClose, onRemove, onQuantity, onOrderP
               ))}
             </div>
 
-            <section className="fp-checkout-fields">
-              <div>
-                <span>Contact info</span>
-                <strong>Checkout request</strong>
-              </div>
-              <label>
-                Name
-                <input
-                  value={checkout.customer}
-                  onChange={(event) => updateCheckout("customer", event.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                Phone / Signal
-                <input
-                  value={checkout.phone}
-                  onChange={(event) => updateCheckout("phone", event.target.value)}
-                  required
-                />
-              </label>
-              <label>
-                Email
-                <input
-                  type="email"
-                  value={checkout.email}
-                  onChange={(event) => updateCheckout("email", event.target.value)}
-                />
-              </label>
-              <label>
-                Telegram / Signal handle
-                <input
-                  value={checkout.signal}
-                  onChange={(event) => updateCheckout("signal", event.target.value)}
-                />
-              </label>
-              <label>
-                Delivery area
-                <input
-                  value={checkout.deliveryArea}
-                  onChange={(event) => updateCheckout("deliveryArea", event.target.value)}
-                  placeholder="City / neighborhood"
-                />
-              </label>
-              <label>
-                Notes
-                <textarea
-                  rows="3"
-                  value={checkout.notes}
-                  onChange={(event) => updateCheckout("notes", event.target.value)}
-                  placeholder="Timing, substitutions, or instructions"
-                />
-              </label>
-            </section>
-
             <footer>
               <div>
                 <span>Subtotal</span>
                 <strong>${subtotal.toFixed(2)}</strong>
               </div>
-              <button type="submit" disabled={submitting}>
-                {submitting ? "Sending..." : "Send order request ->"}
+              <button type="submit">
+                Send order on Telegram -&gt;
               </button>
               {status ? <p className="fp-checkout-status">{status}</p> : null}
-              <p>NO PAYMENT PROCESSED ON-SITE - ORDERS HANDLED BY SALES REP</p>
+              <p>NO PAYMENT PROCESSED ON-SITE - TELEGRAM OPENS WITH YOUR ORDER DETAILS</p>
             </footer>
           </form>
         ) : (

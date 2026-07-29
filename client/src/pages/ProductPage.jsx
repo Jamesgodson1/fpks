@@ -15,14 +15,19 @@ function getVariants(product) {
 export function ProductPage({ storefront, slug, onAdd }) {
   const product = storefront.products.find((item) => item.slug === slug);
   const activeProduct = product || storefront.products[0];
-  const gallery = activeProduct.gallery?.length
+  const galleryImages = activeProduct.gallery?.length
     ? activeProduct.gallery
     : [activeProduct.image].filter(Boolean);
+  const gallery = [
+    ...galleryImages.map((src) => ({ type: "image", src })),
+    ...(activeProduct.video ? [{ type: "video", src: activeProduct.video }] : [])
+  ];
   const variants = getVariants(activeProduct);
   const [imageIndex, setImageIndex] = useState(0);
   const [variantIndex, setVariantIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const selectedVariant = variants[variantIndex] || variants[0];
+  const selectedMedia = gallery[imageIndex] || gallery[0];
   const price = selectedVariant.price || activeProduct.price;
   const related = useMemo(
     () =>
@@ -57,13 +62,19 @@ export function ProductPage({ storefront, slug, onAdd }) {
               <span>{activeProduct.title}</span>
             </nav>
             <div className="fp-gallery-main">
-              <img src={gallery[imageIndex] || activeProduct.image} alt={activeProduct.imageAlt || activeProduct.title} />
+              {selectedMedia?.type === "video" ? (
+                <video src={selectedMedia.src} controls playsInline preload="metadata" poster={activeProduct.image || galleryImages[0]}>
+                  Your browser does not support the video tag.
+                </video>
+              ) : (
+                <img src={selectedMedia?.src || activeProduct.image} alt={activeProduct.imageAlt || activeProduct.title} />
+              )}
               {gallery.length > 1 ? (
                 <>
                   <button
                     className="fp-media-arrow left"
                     type="button"
-                    aria-label="Previous product image"
+                    aria-label="Previous product media"
                     onClick={() => setImageIndex((index) => (index - 1 + gallery.length) % gallery.length)}
                   >
                     {"<"}
@@ -71,7 +82,7 @@ export function ProductPage({ storefront, slug, onAdd }) {
                   <button
                     className="fp-media-arrow right"
                     type="button"
-                    aria-label="Next product image"
+                    aria-label="Next product media"
                     onClick={() => setImageIndex((index) => (index + 1) % gallery.length)}
                   >
                     {">"}
@@ -85,14 +96,19 @@ export function ProductPage({ storefront, slug, onAdd }) {
 
             {gallery.length > 1 ? (
               <div className="fp-gallery-thumbs">
-                {gallery.map((image, index) => (
+                {gallery.map((media, index) => (
                   <button
                     className={imageIndex === index ? "active" : ""}
                     type="button"
                     onClick={() => setImageIndex(index)}
-                    key={`${image}-${index}`}
+                    key={`${media.src}-${index}`}
+                    aria-label={media.type === "video" ? "Show product video" : "Show product image"}
                   >
-                    <img src={image} alt="" />
+                    {media.type === "video" ? (
+                      <span className="fp-video-thumb">Video</span>
+                    ) : (
+                      <img src={media.src} alt="" />
+                    )}
                   </button>
                 ))}
               </div>

@@ -7,7 +7,7 @@ function uploadBuffer(file) {
     const upload = cloudinary.uploader.upload_stream(
       {
         folder: "fuelspack",
-        resource_type: "image"
+        resource_type: "auto"
       },
       (error, result) => {
         if (error) reject(error);

@@ -44,6 +44,7 @@ const productFields = [
   "inventory",
   "status",
   "image",
+  "video",
   "gallery",
   "variants",
   "hues",
@@ -341,6 +342,7 @@ function normalizeProductPayload(body) {
       inventory: Number(body.inventory || 0),
       status: body.status || "active",
       image: body.image || null,
+      video: body.video || null,
       gallery: normalizeArray(body.gallery),
       variants: normalizeVariants(body.variants),
       hues: Array.isArray(body.hues)
