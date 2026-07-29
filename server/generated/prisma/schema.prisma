@@ -1,0 +1,172 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../server/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model SiteSetting {
+  id                Int      @id @default(1)
+  brandName         String
+  logoText          String
+  contactEmail      String
+  serviceArea       String
+  footerDescription String   @db.Text
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model HeroSection {
+  id              Int      @id @default(1)
+  eyebrow         String
+  headline        String
+  subtitle        String   @db.Text
+  imageUrl        String   @db.Text
+  imageAlt        String   @db.Text
+  primaryCtaLabel String
+  primaryCtaUrl   String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Capability {
+  id          Int      @id @default(autoincrement())
+  number      String
+  title       String
+  description String   @db.Text
+  materials   String
+  imageUrl    String   @db.Text
+  imageAlt    String   @db.Text
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model WorkItem {
+  id          Int      @id @default(autoincrement())
+  number      String
+  category    String
+  title       String
+  description String   @db.Text
+  imageUrl    String   @db.Text
+  imageAlt    String   @db.Text
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Faq {
+  id        Int      @id @default(autoincrement())
+  question  String
+  answer    String   @db.Text
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model MediaAsset {
+  id                 Int      @id @default(autoincrement())
+  cloudinaryPublicId String
+  url                String   @db.Text
+  altText            String   @db.Text
+  assetType          String
+  createdAt          DateTime @default(now())
+}
+
+model QuoteRequest {
+  id         Int      @id @default(autoincrement())
+  name       String
+  email      String
+  company    String
+  phone      String?
+  skuDetails String   @db.Text
+  timeline   String?
+  message    String?  @db.Text
+  createdAt  DateTime @default(now())
+}
+
+model StoreSetting {
+  id              Int      @id @default(1)
+  brandName       String
+  logoUrl         String   @db.Text
+  metaTitle       String
+  metaDescription String   @db.Text
+  ogDescription   String   @db.Text
+  marquee         String   @db.Text
+  footerText      String   @db.Text
+  contactEmail    String
+  checkoutMode    String   @default("request")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model StoreContent {
+  id            Int      @id @default(1)
+  heroEyebrow   String
+  heroLineOne   String
+  heroLineTwo   String
+  heroLineThree String
+  heroCopy      String   @db.Text
+  primaryCta    String
+  secondaryCta  String
+  dropsEyebrow  String
+  dropsTitle    String
+  menuTitle     String
+  menuCopy      String   @db.Text
+  faqTitle      String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model StoreCategory {
+  id        Int      @id @default(autoincrement())
+  label     String
+  slug      String   @unique
+  href      String
+  featured  Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model StoreProduct {
+  id           Int      @id @default(autoincrement())
+  title        String
+  category     String
+  categorySlug String
+  price        Float    @default(0)
+  tag          String?
+  inventory    Int      @default(0)
+  status       String   @default("active")
+  image        String?  @db.Text
+  hues         Json?
+  description  String?  @db.Text
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model StoreFaq {
+  id        Int      @id @default(autoincrement())
+  question  String
+  answer    String   @db.Text
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model StoreOrder {
+  id        Int      @id @default(autoincrement())
+  customer  String
+  email     String?
+  phone     String?
+  status    String   @default("new")
+  total     Float    @default(0)
+  items     Json
+  notes     String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
