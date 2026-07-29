@@ -20,8 +20,7 @@ function buildTelegramOrderMessage(cart, subtotal) {
         `- ${item.quantity} x ${item.title}${item.selectedVariant?.name ? ` (${item.selectedVariant.name})` : ""} - $${(
           getLinePrice(item) * item.quantity
         ).toFixed(2)}`
-    ),
-    telegramUsername ? `\nSend to @${telegramUsername}` : ""
+    )
   ].join("\n");
 }
 
@@ -38,9 +37,10 @@ async function copyOrderMessage(message) {
 function buildTelegramUrls(message) {
   const text = encodeURIComponent(message);
   if (telegramUsername) {
+    const domain = encodeURIComponent(telegramUsername);
     return {
-      app: `tg://resolve?domain=${encodeURIComponent(telegramUsername)}`,
-      web: `https://t.me/${encodeURIComponent(telegramUsername)}`
+      app: `tg://resolve?domain=${domain}&text=${text}`,
+      web: `https://t.me/${domain}?text=${text}`
     };
   }
 
