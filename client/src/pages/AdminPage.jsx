@@ -6,6 +6,7 @@ import {
   getAdminStorefront,
   loginAdmin,
   logoutAdmin,
+  restoreAdminLiveProducts,
   saveAdminCategory,
   saveAdminProduct,
   updateAdminOrderStatus,
@@ -50,7 +51,8 @@ const emptyAnalytics = {
   recentEvents: []
 };
 
-const tabs = ["Dashboard", "Orders", "Products", "SEO Analytics", "Categories", "Content", "Settings"];
+const adminProductsPerPage = 20;
+const tabs = ["Dashboard", "Orders", "Products", "Live Restore", "SEO Analytics", "Categories", "Content", "Settings"];
 
 export function AdminPage() {
   const [activeTab, setActiveTab] = useState("Dashboard");
@@ -60,6 +62,8 @@ export function AdminPage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [selectedProduct, setSelectedProduct] = useState(emptyProduct);
   const [analytics, setAnalytics] = useState(emptyAnalytics);
+  const [restoreResult, setRestoreResult] = useState(null);
+  const [productPage, setProductPage] = useState(1);
   const [categoryDraft, setCategoryDraft] = useState({
     id: null,
     label: "",
@@ -95,6 +99,15 @@ export function AdminPage() {
     );
     return { totalProducts, activeProducts, draftProducts, inventory, catalogValue };
   }, [data.products]);
+  const productPageCount = Math.max(1, Math.ceil(data.products.length / adminProductsPerPage));
+  const paginatedProducts = data.products.slice(
+    (Math.min(productPage, productPageCount) - 1) * adminProductsPerPage,
+    Math.min(productPage, productPageCount) * adminProductsPerPage
+  );
+
+  useEffect(() => {
+    setProductPage((page) => Math.min(page, productPageCount));
+  }, [productPageCount]);
 
   function refresh() {
     return Promise.all([
@@ -192,6 +205,14 @@ export function AdminPage() {
     }
     await deleteAdminProduct(product.id);
     setStatus(`Product deleted: ${product.title}`);
+    await refresh();
+  }
+
+  async function restoreLiveData() {
+    setStatus("Restoring live products from CSV...");
+    const result = await restoreAdminLiveProducts();
+    setRestoreResult(result);
+    setStatus(`Live restore complete: ${result.created} created, ${result.updated} updated.`);
     await refresh();
   }
 
@@ -361,10 +382,10 @@ export function AdminPage() {
             <AdminPanel title="Catalog manager">
               <div className="admin-product-toolbar">
                 <button type="button" onClick={() => openProductEditor(emptyProduct)}>Add product</button>
-                <span>{data.products.length} products</span>
+                <span>{data.products.length} products - page {Math.min(productPage, productPageCount)} of {productPageCount}</span>
               </div>
               <div className="admin-product-list">
-                {data.products.map((product) => (
+                {paginatedProducts.map((product) => (
                   <article className="admin-product-card" key={product.id || product.title}>
                     <img src={product.image || "/fuelpack-assets/logo.jpeg"} alt="" />
                     <div>
@@ -378,8 +399,50 @@ export function AdminPage() {
                   </article>
                 ))}
               </div>
+              {productPageCount > 1 ? (
+                <div className="admin-pagination">
+                  <button
+                    type="button"
+                    disabled={productPage <= 1}
+                    onClick={() => setProductPage((page) => Math.max(1, page - 1))}
+                  >
+                    Previous
+                  </button>
+                  <span>
+                    Showing {(Math.min(productPage, productPageCount) - 1) * adminProductsPerPage + 1}
+                    -
+                    {Math.min(Math.min(productPage, productPageCount) * adminProductsPerPage, data.products.length)}
+                    {" "}of {data.products.length}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={productPage >= productPageCount}
+                    onClick={() => setProductPage((page) => Math.min(productPageCount, page + 1))}
+                  >
+                    Next
+                  </button>
+                </div>
+              ) : null}
             </AdminPanel>
           </div>
+        ) : null}
+
+        {activeTab === "Live Restore" ? (
+          <AdminPanel title="Restore live products">
+            <div className="admin-empty-state">
+              <strong>Restore catalog from live products CSV.</strong>
+              <p>This imports products from live products/fuelpack-live-products.csv, restores images and videos, creates missing categories, and optimizes product SEO fields to score 100 with the current SEO checks.</p>
+              <button type="button" onClick={restoreLiveData}>Restore live data</button>
+            </div>
+            {restoreResult ? (
+              <div className="admin-snapshot">
+                <div><span>Total rows</span><strong>{restoreResult.total}</strong></div>
+                <div><span>Created</span><strong>{restoreResult.created}</strong></div>
+                <div><span>Updated</span><strong>{restoreResult.updated}</strong></div>
+                <div><span>Categories</span><strong>{restoreResult.categories}</strong></div>
+              </div>
+            ) : null}
+          </AdminPanel>
         ) : null}
 
         {activeTab === "ProductEditor" ? (

@@ -99,6 +99,12 @@ export async function deleteAdminProduct(id) {
   });
 }
 
+export async function restoreAdminLiveProducts() {
+  return request("/api/admin/products/restore-live", {
+    method: "POST"
+  });
+}
+
 export async function saveAdminCategory(payload) {
   return request(payload.id ? `/api/admin/categories/${payload.id}` : "/api/admin/categories", {
     method: payload.id ? "PUT" : "POST",

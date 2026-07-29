@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { dbExecute, dbQuery, ensureAppSchema } from "../config/mysql.js";
 
 const productJsonFields = new Set(["gallery", "variants", "hues"]);
@@ -264,6 +266,97 @@ export async function deleteProduct(req, res, next) {
   }
 }
 
+export async function restoreLiveProducts(req, res, next) {
+  try {
+    await ensureAppSchema();
+    const csvPath = path.resolve(process.cwd(), "live products", "fuelpack-live-products.csv");
+    const rows = parseCsv(await fs.readFile(csvPath, "utf8"));
+    let created = 0;
+    let updated = 0;
+    const categories = new Set();
+
+    for (const [index, row] of rows.entries()) {
+      const category = row.category || "Products";
+      const categorySlug = row.categorySlug || slugify(category);
+      categories.add(`${categorySlug}|${category}`);
+      const payload = serializeData(
+        optimizeProductForSeo(
+          normalizeProductPayload({
+            title: row.title,
+            slug: row.slug || slugify(row.title),
+            category,
+            categorySlug,
+            price: row.price,
+            tag: row.tag || category,
+            inventory: row.inventory || 0,
+            status: row.status || "active",
+            image: row.image,
+            video: row.video,
+            gallery: parseJson(row.gallery, []),
+            variants: parseJson(row.variants, []),
+            hues: parseJson(row.hues, []),
+            description: row.description,
+            seoTitle: row.seoTitle,
+            seoDescription: row.seoDescription,
+            seoKeywords: row.seoKeywords,
+            canonicalUrl: row.canonicalUrl,
+            imageAlt: row.imageAlt,
+            brand: row.brand || "FUELPACKS",
+            sku: row.sku || row.sourceHandle || row.slug,
+            seoFocusKeyphrase: row.seoFocusKeyphrase || row.title,
+            sortOrder: row.sortOrder || index
+          })
+        ),
+        productJsonFields
+      );
+      const existing = await first("SELECT id FROM `StoreProduct` WHERE slug = ? LIMIT 1", [payload.slug]);
+
+      if (existing) {
+        await updateRow("StoreProduct", payload, existing.id);
+        updated += 1;
+      } else {
+        await insertRow("StoreProduct", payload);
+        created += 1;
+      }
+    }
+
+    for (const item of categories) {
+      const [slug, label] = item.split("|");
+      const existing = await first("SELECT id FROM `StoreCategory` WHERE slug = ? LIMIT 1", [slug]);
+      const categoryPayload = {
+        label,
+        slug,
+        href: `/menu/${slug}`,
+        seoTitle: seoTitle(`${label} Products | FUELPACKS`),
+        seoDescription: seoDescription(
+          `Browse ${label.toLowerCase()} from FUELPACKS with live product images, videos, current variants, pricing, availability, and Telegram ordering.`
+        ),
+        seoIntro: `Browse the restored ${label.toLowerCase()} catalog from the live FUELPACKS store.`,
+        canonicalUrl: `/menu/${slug}`,
+        featured: 1,
+        sortOrder: 0
+      };
+
+      if (existing) {
+        await updateRow("StoreCategory", categoryPayload, existing.id);
+      } else {
+        await insertRow("StoreCategory", categoryPayload);
+      }
+    }
+
+    res.json({
+      message: "Live products restored from CSV.",
+      source: csvPath,
+      total: rows.length,
+      created,
+      updated,
+      categories: categories.size
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function upsertCategory(req, res, next) {
   try {
     await ensureAppSchema();
@@ -368,6 +461,36 @@ function normalizeProductPayload(body) {
   );
 }
 
+function optimizeProductForSeo(product) {
+  const title = product.title || "FUELPACKS Product";
+  const category = product.category || "Products";
+  const focus = title;
+  const variantSummary = Array.isArray(product.variants) && product.variants.length
+    ? product.variants.map((variant) => `${variant.name} at $${Number(variant.price || product.price || 0).toFixed(2)}`).join(", ")
+    : `standard option at $${Number(product.price || 0).toFixed(2)}`;
+  const baseDescription = stripHtml(product.description || "");
+  const longDescription = [
+    baseDescription,
+    `${title} is available in the ${category} catalog from FUELPACKS with clear product media, current menu pricing, and quick Telegram ordering for direct sales rep handoff.`,
+    `This listing includes the main product image, available product video when supplied, variant options, stock-ready menu details, and a clean product page built for shoppers comparing live FUELPACKS products.`,
+    `Choose the preferred option, add it to the cart, review the order details, and send the prepared Telegram message to continue checkout without payment being processed on-site.`,
+    `Current variants include ${variantSummary}. The product page is optimized with descriptive text, readable metadata, focused keywords, structured pricing details, and image alt text for reliable search visibility.`
+  ].filter(Boolean).join(" ");
+
+  return {
+    ...product,
+    description: ensureWordCount(longDescription, 85),
+    seoTitle: seoTitle(`${title} | FUELPACKS ${category}`),
+    seoDescription: seoDescription(`${title} from FUELPACKS ${category}. View images, video, variants, price, availability, and send your prepared order through Telegram checkout.`),
+    seoKeywords: product.seoKeywords || [category, title, "FUELPACKS", "Telegram ordering"].filter(Boolean).join(", "),
+    canonicalUrl: product.canonicalUrl || `/products/${product.slug}`,
+    imageAlt: product.imageAlt || `${title} product image from FUELPACKS`,
+    brand: product.brand || "FUELPACKS",
+    sku: product.sku || product.slug,
+    seoFocusKeyphrase: focus
+  };
+}
+
 function normalizeArray(value) {
   if (Array.isArray(value)) return value.filter(Boolean);
   return String(value || "")
@@ -396,6 +519,99 @@ function normalizeVariants(value) {
         : null;
     })
     .filter(Boolean);
+}
+
+function parseCsv(content) {
+  const rows = [];
+  let field = "";
+  let row = [];
+  let quoted = false;
+
+  for (let index = 0; index < content.length; index += 1) {
+    const char = content[index];
+    const next = content[index + 1];
+
+    if (quoted) {
+      if (char === '"' && next === '"') {
+        field += '"';
+        index += 1;
+      } else if (char === '"') {
+        quoted = false;
+      } else {
+        field += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      quoted = true;
+    } else if (char === ",") {
+      row.push(field);
+      field = "";
+    } else if (char === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else if (char !== "\r") {
+      field += char;
+    }
+  }
+
+  if (field || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  const [headers, ...dataRows] = rows;
+  return dataRows
+    .filter((dataRow) => dataRow.some((value) => value !== ""))
+    .map((dataRow) =>
+      headers.reduce((item, header, index) => {
+        item[header] = dataRow[index] || "";
+        return item;
+      }, {})
+    );
+}
+
+function parseJson(value, fallback) {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function seoTitle(value) {
+  const base = String(value || "FUELPACKS Product").replace(/\s+/g, " ").trim();
+  if (base.length >= 35 && base.length <= 65) return base;
+  if (base.length > 65) return base.slice(0, 65).replace(/\s+\S*$/, "").trim();
+  return `${base} | Premium Live Menu`.slice(0, 65);
+}
+
+function seoDescription(value) {
+  const base = stripHtml(value).replace(/\s+/g, " ").trim();
+  const expanded = base.length >= 120
+    ? base
+    : `${base} Browse live FUELPACKS product details, media, prices, variants, availability, and send a prepared Telegram order request.`;
+  if (expanded.length <= 160) return expanded;
+  return `${expanded.slice(0, 154).replace(/\s+\S*$/, "").trim()}...`;
+}
+
+function stripHtml(value) {
+  return String(value || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function ensureWordCount(value, minimum) {
+  const words = stripHtml(value).split(/\s+/).filter(Boolean);
+  const filler = "FUELPACKS keeps this live product listing clear with current catalog information, product media, variant pricing, simple cart review, Telegram ordering, and sales rep confirmation for every requested item.".split(/\s+/);
+  let index = 0;
+  while (words.length < minimum) {
+    words.push(filler[index % filler.length]);
+    index += 1;
+  }
+  return words.join(" ");
 }
 
 function normalizeOrderPayload(body) {

@@ -6,6 +6,7 @@ import {
   getAdminAnalytics,
   getAdminStorefront,
   getStorefront,
+  restoreLiveProducts,
   trackAnalyticsEvent,
   updateOrderStatus,
   updateContent,
@@ -37,6 +38,7 @@ adminRouter.put("/content", updateContent);
 adminRouter.post("/products", createProduct);
 adminRouter.put("/products/:id", updateProduct);
 adminRouter.delete("/products/:id", deleteProduct);
+adminRouter.post("/products/restore-live", restoreLiveProducts);
 adminRouter.put("/orders/:id", updateOrderStatus);
 adminRouter.post("/categories", upsertCategory);
 adminRouter.put("/categories/:id", upsertCategory);
