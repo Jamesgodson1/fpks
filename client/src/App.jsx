@@ -21,6 +21,7 @@ export default function App() {
   const [storefront, setStorefront] = useState(fallbackStorefront);
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
+  const [cartToast, setCartToast] = useState("");
   const path = window.location.pathname;
 
   useEffect(() => {
@@ -34,6 +35,12 @@ export default function App() {
       productSlug: path.startsWith("/products/") ? path.split("/products/")[1] : undefined
     });
   }, [path]);
+
+  useEffect(() => {
+    if (!cartToast) return undefined;
+    const timeout = window.setTimeout(() => setCartToast(""), 2400);
+    return () => window.clearTimeout(timeout);
+  }, [cartToast]);
 
   const cartCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
   const active = path.startsWith("/menu") ? "MENU" : path.startsWith("/faq") ? "FAQ" : "HOME";
@@ -87,6 +94,7 @@ export default function App() {
         }
       ];
     });
+    setCartToast(`${product.title || "Product"} added to cart successfully.`);
   }
 
   function removeFromCart(cartId) {
@@ -110,29 +118,36 @@ export default function App() {
   }
 
   return (
-    <Layout
-      storefront={storefront}
-      seoPage={seoPage}
-      cart={cart}
-      cartCount={cartCount}
-      active={active}
-      cartOpen={cartOpen}
-      onCartOpen={() => setCartOpen(true)}
-      onCartClose={() => setCartOpen(false)}
-      onCartRemove={removeFromCart}
-      onCartQuantity={updateQuantity}
-      onOrderPlaced={() => setCart([])}
-    >
-      {path.startsWith("/products/") ? (
-        <ProductPage storefront={storefront} slug={path.split("/products/")[1]} onAdd={addToCart} />
-      ) : path.startsWith("/faq") ? (
-        <FaqPage storefront={storefront} />
-      ) : path.startsWith("/menu") ? (
-        <MenuPage storefront={storefront} onAdd={addToCart} categorySlug={categorySlug} />
-      ) : (
-        <HomePage storefront={storefront} onAdd={addToCart} />
-      )}
-    </Layout>
+    <>
+      <Layout
+        storefront={storefront}
+        seoPage={seoPage}
+        cart={cart}
+        cartCount={cartCount}
+        active={active}
+        cartOpen={cartOpen}
+        onCartOpen={() => setCartOpen(true)}
+        onCartClose={() => setCartOpen(false)}
+        onCartRemove={removeFromCart}
+        onCartQuantity={updateQuantity}
+        onOrderPlaced={() => setCart([])}
+      >
+        {path.startsWith("/products/") ? (
+          <ProductPage storefront={storefront} slug={path.split("/products/")[1]} onAdd={addToCart} />
+        ) : path.startsWith("/faq") ? (
+          <FaqPage storefront={storefront} />
+        ) : path.startsWith("/menu") ? (
+          <MenuPage storefront={storefront} onAdd={addToCart} categorySlug={categorySlug} />
+        ) : (
+          <HomePage storefront={storefront} onAdd={addToCart} />
+        )}
+      </Layout>
+      {cartToast ? (
+        <div className="fp-toast" role="status" aria-live="polite">
+          {cartToast}
+        </div>
+      ) : null}
+    </>
   );
 }
 
