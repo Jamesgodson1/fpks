@@ -55,12 +55,20 @@ export default function App() {
   });
 
   function addToCart(product) {
+    const selectedVariant = product.selectedVariant || product.variants?.[0] || {
+      name: "Default",
+      price: product.price,
+      inventory: product.inventory
+    };
+    const productKey = product.id || product.slug || product.title;
+    const variantKey = selectedVariant.name || "default";
+
     trackAnalyticsEvent({
       type: "add_to_cart",
       productSlug: product.slug,
       productName: product.title
     });
-    const key = `${product.slug || product.title}-${product.selectedVariant?.name || "default"}`;
+    const key = `${productKey}-${variantKey}`;
     setCart((items) => {
       const existing = items.find((item) => item.cartKey === key);
       if (existing) {
@@ -72,6 +80,7 @@ export default function App() {
         ...items,
         {
           ...product,
+          selectedVariant,
           cartKey: key,
           cartId: `${key}-${Date.now()}`,
           quantity: 1

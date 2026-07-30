@@ -9,15 +9,17 @@ function getLinePrice(item) {
 }
 
 function buildTelegramOrderMessage(cart, subtotal) {
+  const itemCount = cart.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
   return [
     "New Fuelpacks order",
     "",
+    `Items count: ${itemCount}`,
     `Total: $${Number(subtotal || 0).toFixed(2)}`,
     "",
     "Items:",
     ...cart.map(
-      (item) =>
-        `- ${item.quantity} x ${item.title}${item.selectedVariant?.name ? ` (${item.selectedVariant.name})` : ""} - $${(
+      (item, index) =>
+        `${index + 1}. ${item.quantity} x ${item.title}${item.selectedVariant?.name ? ` (${item.selectedVariant.name})` : ""} - $${(
           getLinePrice(item) * item.quantity
         ).toFixed(2)}`
     )
