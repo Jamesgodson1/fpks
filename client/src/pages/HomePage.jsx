@@ -92,6 +92,36 @@ function SpecialsBand({ products, onAdd }) {
   );
 }
 
+function CategoryBand({ products, onAdd, categorySlug, title, href }) {
+  const categoryProducts = products.filter((product) => product.categorySlug === categorySlug).slice(0, 4);
+
+  if (!categoryProducts.length) {
+    return null;
+  }
+
+  return (
+    <section className="fp-category-band">
+      <div className="fp-container">
+        <div className="fp-section-head">
+          <div>
+            <div className="fp-kicker small">
+              <span />
+              FEATURED CATEGORY
+            </div>
+            <h2>{title}</h2>
+          </div>
+          <a href={href}>VIEW ALL -&gt;</a>
+        </div>
+        <div className="fp-grid">
+          {categoryProducts.map((product) => (
+            <ProductCard product={product} onAdd={onAdd} key={product.id || product.slug || product.title} />
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function HomePage({ storefront, onAdd }) {
   const { content, products } = storefront;
 
@@ -123,8 +153,15 @@ export function HomePage({ storefront, onAdd }) {
         </div>
       </section>
       <Drops content={content} products={products} onAdd={onAdd} />
-      <OrderBand />
       <SpecialsBand products={products} onAdd={onAdd} />
+      <CategoryBand
+        products={products}
+        onAdd={onAdd}
+        categorySlug="indoor"
+        title="TOP INDOOR"
+        href="/menu/indoor"
+      />
+      <OrderBand />
     </>
   );
 }
