@@ -1211,6 +1211,75 @@ button {
     display: none;
   }
 
+  .fp-grid,
+  .fp-special-grid {
+    grid-auto-columns: calc((100vw - 52px) / 3);
+    gap: 10px;
+    padding-right: 12px;
+  }
+
+  .fp-product-body {
+    gap: 7px;
+    padding: 9px 8px 10px;
+  }
+
+  .fp-product-card h3 {
+    min-height: 2.1em;
+    margin-bottom: 0;
+    font-size: 12px;
+    letter-spacing: 0;
+    line-height: 1.05;
+  }
+
+  .fp-product-top span {
+    display: none;
+  }
+
+  .fp-product-card p {
+    font-size: 9px;
+    letter-spacing: 0.06em;
+  }
+
+  .fp-card-variants {
+    display: flex;
+    gap: 5px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .fp-card-variants::-webkit-scrollbar {
+    display: none;
+  }
+
+  .fp-card-variants button {
+    min-height: 32px;
+    min-width: 76px;
+    flex: 0 0 auto;
+    gap: 4px;
+    padding: 6px 7px;
+    font-size: 8px;
+  }
+
+  .fp-card-variants b {
+    font-size: 9px;
+  }
+
+  .fp-product-body > button {
+    min-height: 34px;
+    padding: 8px 10px;
+    font-size: 10px;
+  }
+
+  .fp-badges {
+    top: 6px;
+    left: 6px;
+  }
+
+  .fp-badges span {
+    padding: 3px 6px;
+    font-size: 8px;
+  }
+
   .fp-footer .fp-container {
     grid-template-columns: 1fr;
   }
