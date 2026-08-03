@@ -1105,7 +1105,7 @@ button {
 }
 
 @media (max-width: 900px) {
-  .fp-drops {
+  .fp-drops-home {
     padding: 38px 0 48px 14px;
   }
 
@@ -1119,7 +1119,7 @@ button {
     line-height: 0.95;
   }
 
-  .fp-grid,
+  .fp-drops-home .fp-grid,
   .fp-special-grid {
     display: grid;
     grid-auto-columns: minmax(220px, 74vw);
@@ -1134,7 +1134,7 @@ button {
     scrollbar-width: none;
   }
 
-  .fp-grid::-webkit-scrollbar,
+  .fp-drops-home .fp-grid::-webkit-scrollbar,
   .fp-special-grid::-webkit-scrollbar {
     display: none;
   }
@@ -1211,7 +1211,7 @@ button {
     display: none;
   }
 
-  .fp-grid,
+  .fp-drops-home .fp-grid,
   .fp-special-grid {
     grid-auto-columns: calc((100vw - 52px) / 3);
     gap: 10px;

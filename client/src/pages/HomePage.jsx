@@ -152,7 +152,7 @@ export function HomePage({ storefront, onAdd }) {
           <Stats productCount={products.length} />
         </div>
       </section>
-      <Drops content={content} products={products} onAdd={onAdd} />
+      <Drops content={content} products={products} onAdd={onAdd} variant="home" />
       <SpecialsBand products={products} onAdd={onAdd} />
       <CategoryBand
         products={products}

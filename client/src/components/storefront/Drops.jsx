@@ -1,8 +1,8 @@
 import { ProductCard } from "./ProductCard";
 
-export function Drops({ content, products, onAdd }) {
+export function Drops({ content, products, onAdd, variant = "default" }) {
   return (
-    <section className="fp-drops">
+    <section className={`fp-drops fp-drops-${variant}`}>
       <div className="fp-section-head">
         <div>
           <div className="fp-kicker small">
