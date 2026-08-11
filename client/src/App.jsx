@@ -25,8 +25,24 @@ export default function App() {
   const path = window.location.pathname;
 
   useEffect(() => {
-    getStorefront().then(setStorefront);
-  }, []);
+    let active = true;
+    const shouldLimitInitialProducts = !path.startsWith("/products/");
+
+    getStorefront(shouldLimitInitialProducts ? { productLimit: 48 } : {}).then((data) => {
+      if (!active) return;
+      setStorefront(data);
+
+      if (data.pagination?.products?.hasMore) {
+        getStorefront().then((fullData) => {
+          if (active) setStorefront(fullData);
+        });
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [path]);
 
   useEffect(() => {
     trackAnalyticsEvent({

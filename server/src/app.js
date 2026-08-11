@@ -33,7 +33,17 @@ app.use("/api/storefront", storefrontRouter);
 app.use("/api/admin", adminRouter);
 app.use("/", seoRouter);
 
-app.use(express.static(distPath));
+app.use(
+  express.static(distPath, {
+    maxAge: "1y",
+    immutable: true,
+    setHeaders(res, filePath) {
+      if (filePath.endsWith("index.html")) {
+        res.setHeader("Cache-Control", "no-cache");
+      }
+    }
+  })
+);
 app.get("*", (req, res, next) => {
   if (req.path.startsWith("/api")) {
     return next();

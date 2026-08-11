@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
+import { productMediaSources } from "../../lib/media";
 import { trackAnalyticsEvent } from "../../lib/storefrontApi";
+import { ProductMediaImage } from "./ProductMediaImage";
 
 function formatPrice(price) {
   const amount = Number(price || 0);
@@ -19,6 +21,7 @@ export function ProductCard({ product, onAdd }) {
   const hasOptions = variants.length > 1;
   const hues = product.hues?.length ? product.hues : ["#321", "#743", "#c66"];
   const gradient = `repeating-linear-gradient(135deg, ${hues[0]} 0px, ${hues[0]} 18px, ${hues[1]} 18px, ${hues[1]} 36px, ${hues[2]} 36px, ${hues[2]} 54px)`;
+  const mediaSources = useMemo(() => productMediaSources(product), [product]);
 
   return (
     <article className="fp-product-card">
@@ -36,16 +39,7 @@ export function ProductCard({ product, onAdd }) {
         }
       >
         <div className="fp-product-fallback" style={{ background: gradient }} />
-        {product.image ? (
-          <img
-            src={product.image}
-            alt={product.imageAlt || product.title}
-            loading="lazy"
-            onError={(event) => {
-              event.currentTarget.style.display = "none";
-            }}
-          />
-        ) : null}
+        <ProductMediaImage sources={mediaSources} alt={product.imageAlt || product.title} />
         <div className="fp-badges">
           <span>{product.tag || "NEW"}</span>
         </div>

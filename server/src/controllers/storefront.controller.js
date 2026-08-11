@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import path from "node:path";
+import { cloudinary } from "../config/cloudinary.js";
 import { dbExecute, dbQuery, ensureAppSchema } from "../config/mysql.js";
 
 const productJsonFields = new Set(["gallery", "variants", "hues"]);
@@ -64,35 +66,38 @@ const productFields = [
   "sortOrder"
 ];
 
-const categoryFields = [
-  "label",
-  "slug",
-  "href",
-  "seoTitle",
-  "seoDescription",
-  "seoIntro",
-  "canonicalUrl",
-  "featured",
-  "sortOrder"
-];
-
 export async function getStorefront(req, res, next) {
   try {
     await ensureAppSchema();
+    const productPaging = storefrontProductPaging(req.query);
     const [settings, content, categories, products, faqs] = await Promise.all([
       first("SELECT * FROM `StoreSetting` WHERE id = 1 LIMIT 1"),
       first("SELECT * FROM `StoreContent` WHERE id = 1 LIMIT 1"),
       dbQuery("SELECT * FROM `StoreCategory` ORDER BY sortOrder ASC"),
-      dbQuery("SELECT * FROM `StoreProduct` WHERE status = ? ORDER BY sortOrder ASC", ["active"]),
+      dbQuery(
+        `SELECT * FROM \`StoreProduct\` WHERE status = ? ORDER BY sortOrder ASC${productPaging.sql}`,
+        ["active", ...productPaging.params]
+      ),
       dbQuery("SELECT * FROM `StoreFaq` ORDER BY sortOrder ASC")
     ]);
+    const totalProducts = productPaging.limited
+      ? Number((await first("SELECT COUNT(*) AS total FROM `StoreProduct` WHERE status = ?", ["active"]))?.total || 0)
+      : products.length;
 
     res.json({
       settings,
       content,
       categories: categories.map(normalizeCategory),
       products: products.map(normalizeProduct),
-      faqs
+      faqs,
+      pagination: {
+        products: {
+          limit: productPaging.limit,
+          offset: productPaging.offset,
+          total: totalProducts,
+          hasMore: productPaging.limited && productPaging.offset + products.length < totalProducts
+        }
+      }
     });
   } catch (error) {
     next(error);
@@ -279,6 +284,12 @@ export async function restoreLiveProducts(req, res, next) {
       const category = row.category || "Products";
       const categorySlug = row.categorySlug || slugify(category);
       categories.add(`${categorySlug}|${category}`);
+      const media = await mirrorRestoredProductMedia({
+        slug: row.slug || slugify(row.title),
+        image: row.image,
+        video: row.video,
+        gallery: parseJson(row.gallery, [])
+      });
       const payload = serializeData(
         optimizeProductForSeo(
           normalizeProductPayload({
@@ -290,9 +301,9 @@ export async function restoreLiveProducts(req, res, next) {
             tag: row.tag || category,
             inventory: row.inventory || 0,
             status: row.status || "active",
-            image: row.image,
-            video: row.video,
-            gallery: parseJson(row.gallery, []),
+            image: media.image,
+            video: media.video,
+            gallery: media.gallery,
             variants: parseJson(row.variants, []),
             hues: parseJson(row.hues, []),
             description: row.description,
@@ -368,7 +379,7 @@ export async function upsertCategory(req, res, next) {
       seoDescription: req.body.seoDescription || null,
       seoIntro: req.body.seoIntro || null,
       canonicalUrl: req.body.canonicalUrl || null,
-      featured: Boolean(req.body.featured) ? 1 : 0,
+      featured: req.body.featured ? 1 : 0,
       sortOrder: Number(req.body.sortOrder || 0)
     };
 
@@ -394,15 +405,33 @@ export async function upsertCategory(req, res, next) {
 
 function normalizeProduct(product) {
   if (!product) return product;
+  const gallery = normalizeMediaArray(normalizeJson(product.gallery, []));
+  const image = normalizeMediaUrl(product.image) || gallery[0] || null;
   return {
     ...product,
     price: Number(product.price || 0),
     inventory: Number(product.inventory || 0),
     reviewRating: product.reviewRating === null || product.reviewRating === undefined ? null : Number(product.reviewRating),
     reviewCount: product.reviewCount === null || product.reviewCount === undefined ? null : Number(product.reviewCount),
-    gallery: normalizeJson(product.gallery, []),
+    image,
+    video: normalizeMediaUrl(product.video) || null,
+    gallery: Array.from(new Set([image, ...gallery].filter(Boolean))),
     variants: normalizeJson(product.variants, []),
     hues: normalizeJson(product.hues, [])
+  };
+}
+
+function storefrontProductPaging(query) {
+  const rawLimit = Number(query.productLimit ?? query.limit ?? 0);
+  const limit = rawLimit > 0 ? Math.min(Math.max(rawLimit, 1), 120) : 0;
+  const offset = Math.max(Number(query.productOffset ?? query.offset ?? 0), 0);
+
+  return {
+    limit,
+    offset,
+    limited: limit > 0,
+    sql: limit > 0 ? " LIMIT ? OFFSET ?" : "",
+    params: limit > 0 ? [limit, offset] : []
   };
 }
 
@@ -424,6 +453,8 @@ function normalizeOrder(order) {
 }
 
 function normalizeProductPayload(body) {
+  const gallery = normalizeMediaArray(body.gallery);
+  const image = normalizeMediaUrl(body.image) || gallery[0] || null;
   return pick(
     {
       title: body.title,
@@ -434,9 +465,9 @@ function normalizeProductPayload(body) {
       tag: body.tag || "NEW",
       inventory: Number(body.inventory || 0),
       status: body.status || "active",
-      image: body.image || null,
-      video: body.video || null,
-      gallery: normalizeArray(body.gallery),
+      image,
+      video: normalizeMediaUrl(body.video) || null,
+      gallery: Array.from(new Set([image, ...gallery].filter(Boolean))),
       variants: normalizeVariants(body.variants),
       hues: Array.isArray(body.hues)
         ? body.hues
@@ -459,6 +490,91 @@ function normalizeProductPayload(body) {
     },
     productFields
   );
+}
+
+function normalizeMediaUrl(value) {
+  const url = String(value || "").trim();
+  if (!url) return "";
+  if (url.startsWith("//")) return `https:${url}`;
+  return url.replace(/\s/g, "%20");
+}
+
+function normalizeMediaArray(value) {
+  return normalizeArray(value).map(normalizeMediaUrl).filter(Boolean);
+}
+
+async function mirrorRestoredProductMedia({ slug, image, video, gallery }) {
+  const galleryItems = normalizeMediaArray(gallery);
+  const imageItems = Array.from(new Set([image, ...galleryItems].map(normalizeMediaUrl).filter(Boolean)));
+  const mirroredImages = [];
+
+  for (const [index, url] of imageItems.entries()) {
+    mirroredImages.push(await mirrorRemoteAsset(url, {
+      slug,
+      index,
+      resourceType: "image"
+    }));
+  }
+
+  return {
+    image: mirroredImages[0] || normalizeMediaUrl(image) || galleryItems[0] || null,
+    gallery: mirroredImages.filter(Boolean),
+    video: await mirrorRemoteAsset(video, {
+      slug,
+      index: 0,
+      resourceType: "video"
+    })
+  };
+}
+
+async function mirrorRemoteAsset(sourceUrl, { slug, index, resourceType }) {
+  const url = normalizeMediaUrl(sourceUrl);
+  if (!url || !isCloudinaryConfigured() || isCloudinaryUrl(url)) return url || null;
+
+  const folder = process.env.CLOUDINARY_RESTORE_FOLDER || "fuelspack/restored-products";
+  const publicId = `${folder}/${slug}-${resourceType}-${index}-${shortHash(url)}`;
+
+  try {
+    const result = await cloudinary.uploader.upload(url, {
+      public_id: publicId,
+      overwrite: false,
+      resource_type: resourceType,
+      eager:
+        resourceType === "image"
+          ? [
+              { width: 480, crop: "limit", fetch_format: "webp", quality: "auto" },
+              { width: 480, crop: "limit", fetch_format: "avif", quality: "auto" }
+            ]
+          : undefined
+    });
+    return result.secure_url || url;
+  } catch (error) {
+    if (error?.http_code === 409) {
+      return cloudinary.url(publicId, {
+        secure: true,
+        resource_type: resourceType,
+        type: "upload"
+      });
+    }
+    console.warn(`Cloudinary mirror failed for ${url}: ${error.message}`);
+    return url;
+  }
+}
+
+function isCloudinaryConfigured() {
+  return Boolean(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
+}
+
+function isCloudinaryUrl(value) {
+  try {
+    return new URL(value).hostname.endsWith("cloudinary.com");
+  } catch {
+    return false;
+  }
+}
+
+function shortHash(value) {
+  return crypto.createHash("sha1").update(value).digest("hex").slice(0, 10);
 }
 
 function optimizeProductForSeo(product) {

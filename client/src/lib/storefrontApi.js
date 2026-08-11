@@ -17,15 +17,20 @@ async function request(path, options = {}) {
   return data;
 }
 
-export async function getStorefront() {
+export async function getStorefront(options = {}) {
   try {
-    const data = await request("/api/storefront");
+    const params = new URLSearchParams();
+    if (options.productLimit) params.set("productLimit", String(options.productLimit));
+    if (options.productOffset) params.set("productOffset", String(options.productOffset));
+    const path = params.toString() ? `/api/storefront?${params}` : "/api/storefront";
+    const data = await request(path);
     return {
       settings: data.settings || fallbackStorefront.settings,
       content: data.content || fallbackStorefront.content,
       categories: data.categories?.length ? data.categories : fallbackStorefront.categories,
       products: data.products?.length ? data.products : fallbackStorefront.products,
-      faqs: data.faqs?.length ? data.faqs : fallbackStorefront.faqs
+      faqs: data.faqs?.length ? data.faqs : fallbackStorefront.faqs,
+      pagination: data.pagination
     };
   } catch {
     return fallbackStorefront;

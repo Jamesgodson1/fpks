@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
+import { ProductMediaImage } from "../components/storefront/ProductMediaImage";
 import { ProductCard } from "../components/storefront/ProductCard";
+import { imageSizes, normalizeMediaUrl, productMediaSources } from "../lib/media";
 
 function formatPrice(price) {
   const amount = Number(price || 0);
@@ -15,17 +17,16 @@ function getVariants(product) {
 export function ProductPage({ storefront, slug, onAdd }) {
   const product = storefront.products.find((item) => item.slug === slug);
   const activeProduct = product || storefront.products[0];
-  const galleryImages = activeProduct.gallery?.length
-    ? activeProduct.gallery
-    : [activeProduct.image].filter(Boolean);
+  const galleryImages = productMediaSources(activeProduct);
   const gallery = [
     ...galleryImages.map((src) => ({ type: "image", src })),
-    ...(activeProduct.video ? [{ type: "video", src: activeProduct.video }] : [])
+    ...(normalizeMediaUrl(activeProduct.video) ? [{ type: "video", src: normalizeMediaUrl(activeProduct.video) }] : [])
   ];
   const variants = getVariants(activeProduct);
   const [imageIndex, setImageIndex] = useState(0);
   const [variantIndex, setVariantIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
+  const [failedVideos, setFailedVideos] = useState([]);
   const selectedVariant = variants[variantIndex] || variants[0];
   const selectedMedia = gallery[imageIndex] || gallery[0];
   const price = selectedVariant.price || activeProduct.price;
@@ -63,11 +64,35 @@ export function ProductPage({ storefront, slug, onAdd }) {
             </nav>
             <div className="fp-gallery-main">
               {selectedMedia?.type === "video" ? (
-                <video src={selectedMedia.src} controls playsInline preload="metadata" poster={activeProduct.image || galleryImages[0]}>
-                  Your browser does not support the video tag.
-                </video>
+                failedVideos.includes(selectedMedia.src) ? (
+                  <div className="fp-media-unavailable">
+                    <ProductMediaImage
+                      sources={galleryImages}
+                      alt={activeProduct.imageAlt || activeProduct.title}
+                      sizes={imageSizes.detail}
+                      priority
+                    />
+                    <span>Video unavailable</span>
+                  </div>
+                ) : (
+                  <video
+                    controls
+                    playsInline
+                    preload="metadata"
+                    poster={galleryImages[0]}
+                    onError={() => setFailedVideos((items) => [...new Set([...items, selectedMedia.src])])}
+                  >
+                    <source src={selectedMedia.src} type="video/mp4" />
+                    Your browser does not support the video tag.
+                  </video>
+                )
               ) : (
-                <img src={selectedMedia?.src || activeProduct.image} alt={activeProduct.imageAlt || activeProduct.title} />
+                <ProductMediaImage
+                  sources={[selectedMedia?.src, ...galleryImages]}
+                  alt={activeProduct.imageAlt || activeProduct.title}
+                  sizes={imageSizes.detail}
+                  priority
+                />
               )}
               {gallery.length > 1 ? (
                 <>
@@ -107,7 +132,7 @@ export function ProductPage({ storefront, slug, onAdd }) {
                     {media.type === "video" ? (
                       <span className="fp-video-thumb">Video</span>
                     ) : (
-                      <img src={media.src} alt="" />
+                      <ProductMediaImage sources={media.src} alt="" sizes={imageSizes.thumb} />
                     )}
                   </button>
                 ))}
