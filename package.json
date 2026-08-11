@@ -11,6 +11,8 @@
     "preview": "vite preview --host 0.0.0.0",
     "start": "node server/src/server.js",
     "seed": "node server/src/scripts/seed-mysql.js",
+    "restore:live": "node server/src/scripts/restore-live-products.js",
+    "cleanup:restored": "node server/src/scripts/cleanup-restored-products.js",
     "lint": "eslint ."
   },
   "dependencies": {

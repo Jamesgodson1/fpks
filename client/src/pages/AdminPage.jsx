@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  cleanupAdminRestoredProducts,
   deleteAdminProduct,
   getAdminAnalytics,
   getAdminSession,
@@ -213,6 +214,14 @@ export function AdminPage() {
     const result = await restoreAdminLiveProducts();
     setRestoreResult(result);
     setStatus(`Live restore complete: ${result.created} created, ${result.updated} updated.`);
+    await refresh();
+  }
+
+  async function cleanupRestoredData() {
+    setStatus("Cleaning restored products into the main categories...");
+    const result = await cleanupAdminRestoredProducts();
+    setRestoreResult(result);
+    setStatus(`Cleanup complete: ${result.updated} products organized into ${result.categories} categories.`);
     await refresh();
   }
 
@@ -431,15 +440,26 @@ export function AdminPage() {
           <AdminPanel title="Restore live products">
             <div className="admin-empty-state">
               <strong>Restore catalog from live products CSV.</strong>
-              <p>This imports products from live products/fuelpack-live-products.csv, restores images and videos, creates missing categories, and optimizes product SEO fields to score 100 with the current SEO checks.</p>
+              <p>This imports products from live products/fuelpack-live-products.csv, restores images and videos, organizes products into the main categories, and optimizes product SEO fields to score 100 with the current SEO checks.</p>
               <button type="button" onClick={restoreLiveData}>Restore live data</button>
+              <button type="button" onClick={cleanupRestoredData}>Clean restored categories</button>
             </div>
             {restoreResult ? (
               <div className="admin-snapshot">
                 <div><span>Total rows</span><strong>{restoreResult.total}</strong></div>
-                <div><span>Created</span><strong>{restoreResult.created}</strong></div>
-                <div><span>Updated</span><strong>{restoreResult.updated}</strong></div>
+                <div><span>Created</span><strong>{restoreResult.created || 0}</strong></div>
+                <div><span>Updated</span><strong>{restoreResult.updated || 0}</strong></div>
                 <div><span>Categories</span><strong>{restoreResult.categories}</strong></div>
+              </div>
+            ) : null}
+            {restoreResult?.categoryCounts ? (
+              <div className="admin-list">
+                {Object.entries(restoreResult.categoryCounts).map(([slug, count]) => (
+                  <div key={slug}>
+                    <strong>{slug}</strong>
+                    <span>{count} products</span>
+                  </div>
+                ))}
               </div>
             ) : null}
           </AdminPanel>

@@ -110,6 +110,12 @@ export async function restoreAdminLiveProducts() {
   });
 }
 
+export async function cleanupAdminRestoredProducts() {
+  return request("/api/admin/products/cleanup-restored", {
+    method: "POST"
+  });
+}
+
 export async function saveAdminCategory(payload) {
   return request(payload.id ? `/api/admin/categories/${payload.id}` : "/api/admin/categories", {
     method: payload.id ? "PUT" : "POST",

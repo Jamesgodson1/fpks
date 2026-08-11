@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { cloudinary } from "../config/cloudinary.js";
 import { dbExecute, dbQuery, ensureAppSchema } from "../config/mysql.js";
+import { cleanRestoredProductRow, mainCategoryPayloads } from "../lib/restoredCatalogCleanup.js";
 
 const productJsonFields = new Set(["gallery", "variants", "hues"]);
 const orderJsonFields = new Set(["items"]);
@@ -278,44 +279,43 @@ export async function restoreLiveProducts(req, res, next) {
     const rows = parseCsv(await fs.readFile(csvPath, "utf8"));
     let created = 0;
     let updated = 0;
-    const categories = new Set();
+    const categoryCounts = new Map();
 
     for (const [index, row] of rows.entries()) {
-      const category = row.category || "Products";
-      const categorySlug = row.categorySlug || slugify(category);
-      categories.add(`${categorySlug}|${category}`);
+      const cleanRow = cleanRestoredProductRow(row, index);
+      categoryCounts.set(cleanRow.categorySlug, (categoryCounts.get(cleanRow.categorySlug) || 0) + 1);
       const media = await mirrorRestoredProductMedia({
-        slug: row.slug || slugify(row.title),
-        image: row.image,
-        video: row.video,
-        gallery: parseJson(row.gallery, [])
+        slug: cleanRow.slug || slugify(cleanRow.title),
+        image: cleanRow.image,
+        video: cleanRow.video,
+        gallery: parseJson(cleanRow.gallery, [])
       });
       const payload = serializeData(
         optimizeProductForSeo(
           normalizeProductPayload({
-            title: row.title,
-            slug: row.slug || slugify(row.title),
-            category,
-            categorySlug,
-            price: row.price,
-            tag: row.tag || category,
-            inventory: row.inventory || 0,
-            status: row.status || "active",
+            title: cleanRow.title,
+            slug: cleanRow.slug || slugify(cleanRow.title),
+            category: cleanRow.category,
+            categorySlug: cleanRow.categorySlug,
+            price: cleanRow.price,
+            tag: cleanRow.tag,
+            inventory: cleanRow.inventory || 0,
+            status: cleanRow.status || "active",
             image: media.image,
             video: media.video,
             gallery: media.gallery,
-            variants: parseJson(row.variants, []),
-            hues: parseJson(row.hues, []),
-            description: row.description,
-            seoTitle: row.seoTitle,
-            seoDescription: row.seoDescription,
-            seoKeywords: row.seoKeywords,
-            canonicalUrl: row.canonicalUrl,
-            imageAlt: row.imageAlt,
-            brand: row.brand || "FUELPACKS",
-            sku: row.sku || row.sourceHandle || row.slug,
-            seoFocusKeyphrase: row.seoFocusKeyphrase || row.title,
-            sortOrder: row.sortOrder || index
+            variants: parseJson(cleanRow.variants, []),
+            hues: parseJson(cleanRow.hues, []),
+            description: cleanRow.description,
+            seoTitle: cleanRow.seoTitle,
+            seoDescription: cleanRow.seoDescription,
+            seoKeywords: cleanRow.seoKeywords,
+            canonicalUrl: cleanRow.canonicalUrl,
+            imageAlt: cleanRow.imageAlt,
+            brand: cleanRow.brand || "FUELPACKS",
+            sku: cleanRow.sku || cleanRow.sourceHandle || cleanRow.slug,
+            seoFocusKeyphrase: cleanRow.seoFocusKeyphrase || cleanRow.title,
+            sortOrder: cleanRow.sortOrder
           })
         ),
         productJsonFields
@@ -331,22 +331,9 @@ export async function restoreLiveProducts(req, res, next) {
       }
     }
 
-    for (const item of categories) {
-      const [slug, label] = item.split("|");
+    for (const categoryPayload of mainCategoryPayloads()) {
+      const { slug } = categoryPayload;
       const existing = await first("SELECT id FROM `StoreCategory` WHERE slug = ? LIMIT 1", [slug]);
-      const categoryPayload = {
-        label,
-        slug,
-        href: `/menu/${slug}`,
-        seoTitle: seoTitle(`${label} Products | FUELPACKS`),
-        seoDescription: seoDescription(
-          `Browse ${label.toLowerCase()} from FUELPACKS with live product images, videos, current variants, pricing, availability, and Telegram ordering.`
-        ),
-        seoIntro: `Browse the restored ${label.toLowerCase()} catalog from the live FUELPACKS store.`,
-        canonicalUrl: `/menu/${slug}`,
-        featured: 1,
-        sortOrder: 0
-      };
 
       if (existing) {
         await updateRow("StoreCategory", categoryPayload, existing.id);
@@ -361,7 +348,55 @@ export async function restoreLiveProducts(req, res, next) {
       total: rows.length,
       created,
       updated,
-      categories: categories.size
+      categories: mainCategoryPayloads().length,
+      categoryCounts: Object.fromEntries(categoryCounts.entries())
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function cleanupRestoredProducts(req, res, next) {
+  try {
+    await ensureAppSchema();
+    const products = await dbQuery("SELECT * FROM `StoreProduct` ORDER BY sortOrder ASC, id ASC");
+    const categoryCounts = new Map();
+    let updated = 0;
+
+    for (const [index, product] of products.entries()) {
+      const cleanProduct = cleanRestoredProductRow(normalizeProduct(product), index);
+      categoryCounts.set(cleanProduct.categorySlug, (categoryCounts.get(cleanProduct.categorySlug) || 0) + 1);
+      await updateRow(
+        "StoreProduct",
+        {
+          category: cleanProduct.category,
+          categorySlug: cleanProduct.categorySlug,
+          tag: cleanProduct.tag,
+          canonicalUrl: `/products/${cleanProduct.slug}`,
+          sortOrder: cleanProduct.sortOrder
+        },
+        product.id
+      );
+      updated += 1;
+    }
+
+    const mainCategories = mainCategoryPayloads();
+    for (const categoryPayload of mainCategories) {
+      const existing = await first("SELECT id FROM `StoreCategory` WHERE slug = ? LIMIT 1", [categoryPayload.slug]);
+      if (existing) {
+        await updateRow("StoreCategory", categoryPayload, existing.id);
+      } else {
+        await insertRow("StoreCategory", categoryPayload);
+      }
+    }
+
+    await deleteNonMainCategories(mainCategories.map((category) => category.slug));
+
+    res.json({
+      message: "Restored products cleaned into the main category structure.",
+      updated,
+      categories: mainCategories.length,
+      categoryCounts: Object.fromEntries(categoryCounts.entries())
     });
   } catch (error) {
     next(error);
@@ -851,6 +886,12 @@ async function updateRow(table, data, id) {
   if (!keys.length) return;
   const assignments = keys.map((key) => `\`${key}\` = ?`).join(", ");
   await dbExecute(`UPDATE \`${table}\` SET ${assignments} WHERE id = ?`, [...keys.map((key) => data[key]), id]);
+}
+
+async function deleteNonMainCategories(slugs) {
+  if (!slugs.length) return;
+  const placeholders = slugs.map(() => "?").join(", ");
+  await dbExecute(`DELETE FROM \`StoreCategory\` WHERE slug NOT IN (${placeholders})`, slugs);
 }
 
 async function upsertSingleton(table, data) {
