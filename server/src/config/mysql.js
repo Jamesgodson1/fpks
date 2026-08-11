@@ -11,6 +11,9 @@ export const mysqlPool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: process.env.DB_PERSISTENT === "true" ? 10 : 5,
   queueLimit: 0,
+  connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT || 30000),
+  enableKeepAlive: true,
+  keepAliveInitialDelay: 0,
   timezone: "Z",
   charset: "utf8mb4"
 });

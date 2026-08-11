@@ -320,27 +320,18 @@ export async function restoreLiveProducts(req, res, next) {
         ),
         productJsonFields
       );
-      const existing = await first("SELECT id FROM `StoreProduct` WHERE slug = ? LIMIT 1", [payload.slug]);
-
-      if (existing) {
-        await updateRow("StoreProduct", payload, existing.id);
+      const result = await upsertByUnique("StoreProduct", payload, "slug");
+      if (result.affectedRows === 2 || result.changedRows > 0) {
         updated += 1;
       } else {
-        await insertRow("StoreProduct", payload);
         created += 1;
       }
     }
 
     for (const categoryPayload of mainCategoryPayloads()) {
-      const { slug } = categoryPayload;
-      const existing = await first("SELECT id FROM `StoreCategory` WHERE slug = ? LIMIT 1", [slug]);
-
-      if (existing) {
-        await updateRow("StoreCategory", categoryPayload, existing.id);
-      } else {
-        await insertRow("StoreCategory", categoryPayload);
-      }
+      await upsertByUnique("StoreCategory", categoryPayload, "slug");
     }
+    await deleteNonMainCategories(mainCategoryPayloads().map((category) => category.slug));
 
     res.json({
       message: "Live products restored from CSV.",
@@ -597,7 +588,12 @@ async function mirrorRemoteAsset(sourceUrl, { slug, index, resourceType }) {
 }
 
 function isCloudinaryConfigured() {
-  return Boolean(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME || "";
+  return Boolean(
+    /^[a-z0-9][a-z0-9_-]*$/.test(cloudName) &&
+      process.env.CLOUDINARY_API_KEY &&
+      process.env.CLOUDINARY_API_SECRET
+  );
 }
 
 function isCloudinaryUrl(value) {
@@ -879,6 +875,20 @@ async function insertRow(table, data) {
   const columns = keys.map((key) => `\`${key}\``).join(", ");
   const placeholders = keys.map(() => "?").join(", ");
   return dbExecute(`INSERT INTO \`${table}\` (${columns}) VALUES (${placeholders})`, keys.map((key) => data[key]));
+}
+
+async function upsertByUnique(table, data, uniqueKey) {
+  const keys = Object.keys(data).filter((key) => data[key] !== undefined);
+  const columns = keys.map((key) => `\`${key}\``).join(", ");
+  const placeholders = keys.map(() => "?").join(", ");
+  const updates = keys
+    .filter((key) => key !== uniqueKey && key !== "id")
+    .map((key) => `\`${key}\` = VALUES(\`${key}\`)`)
+    .join(", ");
+  return dbExecute(
+    `INSERT INTO \`${table}\` (${columns}) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updates}`,
+    keys.map((key) => data[key])
+  );
 }
 
 async function updateRow(table, data, id) {
