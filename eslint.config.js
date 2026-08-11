@@ -16,7 +16,8 @@ const browserGlobals = {
 const nodeGlobals = {
   Buffer: "readonly",
   console: "readonly",
-  process: "readonly"
+  process: "readonly",
+  setTimeout: "readonly"
 };
 
 export default [

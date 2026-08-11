@@ -9,7 +9,7 @@ export const mysqlPool = mysql.createPool({
   user: process.env.DB_USERNAME || process.env.MYSQL_USER || "root",
   password: process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || "",
   waitForConnections: true,
-  connectionLimit: process.env.DB_PERSISTENT === "true" ? 10 : 5,
+  connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || (process.env.DB_PERSISTENT === "true" ? 5 : 1)),
   queueLimit: 0,
   connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT || 30000),
   enableKeepAlive: true,
@@ -28,13 +28,47 @@ export function ensureAppSchema() {
 }
 
 export async function dbQuery(sql, params = []) {
-  const [rows] = await mysqlPool.query(sql, params);
+  const [rows] = await withMysqlRetry(() => mysqlPool.query(sql, params));
   return rows;
 }
 
 export async function dbExecute(sql, params = []) {
-  const [result] = await mysqlPool.execute(sql, params);
+  const [result] = await withMysqlRetry(() => mysqlPool.execute(sql, params));
   return result;
+}
+
+async function withMysqlRetry(operation, attempts = Number(process.env.DB_RETRY_ATTEMPTS || 3)) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientMysqlError(error) || attempt === attempts) {
+        throw error;
+      }
+      await wait(400 * attempt);
+    }
+  }
+
+  throw lastError;
+}
+
+function isTransientMysqlError(error) {
+  return [
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "EAI_AGAIN",
+    "PROTOCOL_CONNECTION_LOST",
+    "ER_TOO_MANY_USER_CONNECTIONS"
+  ].includes(error?.code);
+}
+
+function wait(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function createSchema() {

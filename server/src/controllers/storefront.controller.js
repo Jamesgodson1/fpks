@@ -321,10 +321,10 @@ export async function restoreLiveProducts(req, res, next) {
         productJsonFields
       );
       const result = await upsertByUnique("StoreProduct", payload, "slug");
-      if (result.affectedRows === 2 || result.changedRows > 0) {
-        updated += 1;
-      } else {
+      if (result.insertId) {
         created += 1;
+      } else {
+        updated += 1;
       }
     }
 
