@@ -274,12 +274,20 @@ export async function deleteProduct(req, res, next) {
 
 export async function restoreLiveProducts(req, res, next) {
   try {
-    await ensureAppSchema();
     const csvPath = path.resolve(process.cwd(), "live products", "fuelpack-live-products.csv");
     const rows = parseCsv(await fs.readFile(csvPath, "utf8"));
+    const mediaValidation = validateRestoredProductMedia(rows);
+    assertCloudinaryRestoreConfigured();
+    await ensureAppSchema();
     let created = 0;
     let updated = 0;
     const categoryCounts = new Map();
+    const mediaStats = {
+      imageUploads: 0,
+      videoUploads: 0,
+      existingCloudinaryImages: 0,
+      existingCloudinaryVideos: 0
+    };
 
     for (const [index, row] of rows.entries()) {
       const cleanRow = cleanRestoredProductRow(row, index);
@@ -288,7 +296,8 @@ export async function restoreLiveProducts(req, res, next) {
         slug: cleanRow.slug || slugify(cleanRow.title),
         image: cleanRow.image,
         video: cleanRow.video,
-        gallery: parseJson(cleanRow.gallery, [])
+        gallery: parseJson(cleanRow.gallery, []),
+        stats: mediaStats
       });
       const payload = serializeData(
         optimizeProductForSeo(
@@ -340,7 +349,11 @@ export async function restoreLiveProducts(req, res, next) {
       created,
       updated,
       categories: mainCategoryPayloads().length,
-      categoryCounts: Object.fromEntries(categoryCounts.entries())
+      categoryCounts: Object.fromEntries(categoryCounts.entries()),
+      media: {
+        ...mediaValidation,
+        ...mediaStats
+      }
     });
   } catch (error) {
     next(error);
@@ -529,7 +542,50 @@ function normalizeMediaArray(value) {
   return normalizeArray(value).map(normalizeMediaUrl).filter(Boolean);
 }
 
-async function mirrorRestoredProductMedia({ slug, image, video, gallery }) {
+function validateRestoredProductMedia(rows) {
+  const missingImages = [];
+  const invalidImages = [];
+  const invalidVideos = [];
+  let videoCount = 0;
+
+  for (const [index, row] of rows.entries()) {
+    const imageItems = Array.from(new Set([row.image, ...normalizeMediaArray(parseJson(row.gallery, []))].map(normalizeMediaUrl).filter(Boolean)));
+    if (!imageItems.length) {
+      missingImages.push(row.slug || row.title || `row-${index + 1}`);
+    }
+    for (const imageUrl of imageItems) {
+      if (!isRemoteHttpUrl(imageUrl)) {
+        invalidImages.push(`${row.slug || row.title || `row-${index + 1}`}: ${imageUrl}`);
+      }
+    }
+    const videoUrl = normalizeMediaUrl(row.video);
+    if (videoUrl) {
+      videoCount += 1;
+      if (!isRemoteHttpUrl(videoUrl)) {
+        invalidVideos.push(`${row.slug || row.title || `row-${index + 1}`}: ${videoUrl}`);
+      }
+    }
+  }
+
+  if (missingImages.length || invalidImages.length || invalidVideos.length) {
+    const error = new Error("Restored product media validation failed.");
+    error.status = 400;
+    error.details = {
+      missingImages,
+      invalidImages,
+      invalidVideos
+    };
+    throw error;
+  }
+
+  return {
+    productsWithImages: rows.length,
+    productsWithVideos: videoCount,
+    productsMissingVideos: rows.length - videoCount
+  };
+}
+
+async function mirrorRestoredProductMedia({ slug, image, video, gallery, stats }) {
   const galleryItems = normalizeMediaArray(gallery);
   const imageItems = Array.from(new Set([image, ...galleryItems].map(normalizeMediaUrl).filter(Boolean)));
   const mirroredImages = [];
@@ -538,24 +594,31 @@ async function mirrorRestoredProductMedia({ slug, image, video, gallery }) {
     mirroredImages.push(await mirrorRemoteAsset(url, {
       slug,
       index,
-      resourceType: "image"
+      resourceType: "image",
+      stats
     }));
   }
 
   return {
-    image: mirroredImages[0] || normalizeMediaUrl(image) || galleryItems[0] || null,
+    image: mirroredImages[0],
     gallery: mirroredImages.filter(Boolean),
     video: await mirrorRemoteAsset(video, {
       slug,
       index: 0,
-      resourceType: "video"
+      resourceType: "video",
+      stats
     })
   };
 }
 
-async function mirrorRemoteAsset(sourceUrl, { slug, index, resourceType }) {
+async function mirrorRemoteAsset(sourceUrl, { slug, index, resourceType, stats }) {
   const url = normalizeMediaUrl(sourceUrl);
-  if (!url || !isCloudinaryConfigured() || isCloudinaryUrl(url)) return url || null;
+  if (!url) return null;
+  if (isCloudinaryUrl(url)) {
+    if (resourceType === "image") stats.existingCloudinaryImages += 1;
+    if (resourceType === "video") stats.existingCloudinaryVideos += 1;
+    return url;
+  }
 
   const folder = process.env.CLOUDINARY_RESTORE_FOLDER || "fuelspack/restored-products";
   const publicId = `${folder}/${slug}-${resourceType}-${index}-${shortHash(url)}`;
@@ -573,27 +636,57 @@ async function mirrorRemoteAsset(sourceUrl, { slug, index, resourceType }) {
             ]
           : undefined
     });
+    if (resourceType === "image") stats.imageUploads += 1;
+    if (resourceType === "video") stats.videoUploads += 1;
     return result.secure_url || url;
   } catch (error) {
     if (error?.http_code === 409) {
+      if (resourceType === "image") stats.existingCloudinaryImages += 1;
+      if (resourceType === "video") stats.existingCloudinaryVideos += 1;
       return cloudinary.url(publicId, {
         secure: true,
         resource_type: resourceType,
         type: "upload"
       });
     }
-    console.warn(`Cloudinary mirror failed for ${url}: ${error.message}`);
-    return url;
+    const uploadError = new Error(`Cloudinary ${resourceType} upload failed for ${slug}: ${error.message}`);
+    uploadError.status = 502;
+    uploadError.cause = error;
+    throw uploadError;
   }
 }
 
-function isCloudinaryConfigured() {
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME || "";
-  return Boolean(
-    /^[a-z0-9][a-z0-9_-]*$/.test(cloudName) &&
-      process.env.CLOUDINARY_API_KEY &&
-      process.env.CLOUDINARY_API_SECRET
+function assertCloudinaryRestoreConfigured() {
+  const status = cloudinaryConfigStatus();
+  if (status.configured) return;
+  const error = new Error(
+    "Cloudinary restore is not configured correctly. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET before restoring live products."
   );
+  error.status = 500;
+  error.details = status;
+  throw error;
+}
+
+function cloudinaryConfigStatus() {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME || "";
+  const validCloudName = /^[a-z0-9][a-z0-9_-]*$/.test(cloudName) && cloudName.length >= 5;
+  return {
+    configured: Boolean(validCloudName && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET),
+    cloudNamePresent: Boolean(cloudName),
+    cloudNameLength: cloudName.length,
+    cloudNameFormatValid: validCloudName,
+    apiKeyPresent: Boolean(process.env.CLOUDINARY_API_KEY),
+    apiSecretPresent: Boolean(process.env.CLOUDINARY_API_SECRET)
+  };
+}
+
+function isRemoteHttpUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function isCloudinaryUrl(value) {

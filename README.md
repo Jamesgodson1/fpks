@@ -37,8 +37,24 @@ Admin: `http://localhost:5000/admin`
 
 ```bash
 npm run build
+npm run lint
+npm run audit:live-media
+npm run verify:cloudinary
+npm run restore:live
+npm run cleanup:restored
 npm start
 ```
+
+## Live Product Restore
+
+Before restoring scraped products, verify the CSV and Cloudinary credentials:
+
+```bash
+npm run audit:live-media
+npm run verify:cloudinary
+```
+
+`npm run restore:live` requires every scraped product to have a valid image and requires Cloudinary to be configured. Product images and available product videos are uploaded to Cloudinary during restore; the restore stops before writing products if Cloudinary is missing or invalid.
 
 ## Notes
 

@@ -462,6 +462,14 @@ export function AdminPage() {
                 ))}
               </div>
             ) : null}
+            {restoreResult?.media ? (
+              <div className="admin-snapshot">
+                <div><span>Images checked</span><strong>{restoreResult.media.productsWithImages}</strong></div>
+                <div><span>Videos checked</span><strong>{restoreResult.media.productsWithVideos}</strong></div>
+                <div><span>Image uploads</span><strong>{restoreResult.media.imageUploads}</strong></div>
+                <div><span>Video uploads</span><strong>{restoreResult.media.videoUploads}</strong></div>
+              </div>
+            ) : null}
           </AdminPanel>
         ) : null}
 
