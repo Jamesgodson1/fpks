@@ -47,7 +47,7 @@ npm start
 
 ## Live Product Restore
 
-Before restoring scraped products, verify the CSV and Cloudinary credentials:
+Before restoring scraped products, verify the CSV and Cloudinary upload credentials:
 
 ```bash
 npm run audit:live-media

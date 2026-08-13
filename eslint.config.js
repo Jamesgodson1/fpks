@@ -14,7 +14,9 @@ const browserGlobals = {
 };
 
 const nodeGlobals = {
+  AbortController: "readonly",
   Buffer: "readonly",
+  clearTimeout: "readonly",
   console: "readonly",
   process: "readonly",
   setTimeout: "readonly"

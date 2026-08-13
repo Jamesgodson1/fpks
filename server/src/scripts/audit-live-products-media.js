@@ -7,7 +7,11 @@ const missingImages = [];
 const missingGallery = [];
 const invalidImages = [];
 const invalidVideos = [];
+const unreachableImages = [];
+const unreachableVideos = [];
 let productsWithVideos = 0;
+const checkReachability = process.argv.includes("--check-remote");
+const remoteChecks = [];
 
 for (const [index, row] of rows.entries()) {
   const label = row.slug || row.title || `row-${index + 1}`;
@@ -18,12 +22,29 @@ for (const [index, row] of rows.entries()) {
   if (!gallery.length) missingGallery.push(label);
   for (const image of images) {
     if (!isRemoteHttpUrl(image)) invalidImages.push(`${label}: ${image}`);
+    else if (checkReachability) {
+      remoteChecks.push({ type: "image", label, url: image });
+    }
   }
 
   const video = normalizeUrl(row.video);
   if (video) {
     productsWithVideos += 1;
     if (!isRemoteHttpUrl(video)) invalidVideos.push(`${label}: ${video}`);
+    else if (checkReachability) {
+      remoteChecks.push({ type: "video", label, url: video });
+    }
+  }
+}
+
+if (checkReachability) {
+  const results = await mapWithConcurrency(remoteChecks, 20, async (item) => ({
+    ...item,
+    reachable: await remoteExists(item.url)
+  }));
+  for (const item of results.filter((result) => !result.reachable)) {
+    if (item.type === "image") unreachableImages.push(`${item.label}: ${item.url}`);
+    if (item.type === "video") unreachableVideos.push(`${item.label}: ${item.url}`);
   }
 }
 
@@ -38,7 +59,16 @@ const result = {
   missingGallery,
   invalidImages,
   invalidVideos,
-  passed: !missingImages.length && !missingGallery.length && !invalidImages.length && !invalidVideos.length
+  unreachableImages,
+  unreachableVideos,
+  remoteChecked: checkReachability,
+  passed:
+    !missingImages.length &&
+    !missingGallery.length &&
+    !invalidImages.length &&
+    !invalidVideos.length &&
+    !unreachableImages.length &&
+    !unreachableVideos.length
 };
 
 console.log(JSON.stringify(result, null, 2));
@@ -58,6 +88,42 @@ function isRemoteHttpUrl(value) {
   } catch {
     return false;
   }
+}
+
+async function remoteExists(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const response = await fetch(url, { method: "HEAD", signal: controller.signal });
+    if (response.ok) return true;
+    if (response.status === 405 || response.status === 403) {
+      const getResponse = await fetch(url, {
+        method: "GET",
+        headers: { Range: "bytes=0-0" },
+        signal: controller.signal
+      });
+      return getResponse.ok || getResponse.status === 206;
+    }
+    return false;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function mapWithConcurrency(items, limit, worker) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const current = cursor;
+      cursor += 1;
+      results[current] = await worker(items[current], current);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function parseJson(value, fallback = []) {

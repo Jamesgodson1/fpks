@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { cloudinary } from "../config/cloudinary.js";
 import { dbExecute, dbQuery, ensureAppSchema } from "../config/mysql.js";
+import { assertCloudinaryRestoreAccess } from "../lib/cloudinaryRestore.js";
 import { cleanRestoredProductRow, mainCategoryPayloads } from "../lib/restoredCatalogCleanup.js";
 
 const productJsonFields = new Set(["gallery", "variants", "hues"]);
@@ -277,7 +278,7 @@ export async function restoreLiveProducts(req, res, next) {
     const csvPath = path.resolve(process.cwd(), "live products", "fuelpack-live-products.csv");
     const rows = parseCsv(await fs.readFile(csvPath, "utf8"));
     const mediaValidation = validateRestoredProductMedia(rows);
-    assertCloudinaryRestoreConfigured();
+    await assertCloudinaryRestoreAccess();
     await ensureAppSchema();
     let created = 0;
     let updated = 0;
@@ -589,14 +590,26 @@ async function mirrorRestoredProductMedia({ slug, image, video, gallery, stats }
   const galleryItems = normalizeMediaArray(gallery);
   const imageItems = Array.from(new Set([image, ...galleryItems].map(normalizeMediaUrl).filter(Boolean)));
   const mirroredImages = [];
+  const imageErrors = [];
 
   for (const [index, url] of imageItems.entries()) {
-    mirroredImages.push(await mirrorRemoteAsset(url, {
-      slug,
-      index,
-      resourceType: "image",
-      stats
-    }));
+    try {
+      mirroredImages.push(await mirrorRemoteAsset(url, {
+        slug,
+        index,
+        resourceType: "image",
+        stats
+      }));
+    } catch (error) {
+      imageErrors.push(error.message);
+    }
+  }
+
+  if (!mirroredImages.filter(Boolean).length) {
+    const error = new Error(`No product image could be uploaded to Cloudinary for ${slug}.`);
+    error.status = 502;
+    error.details = { slug, imageErrors };
+    throw error;
   }
 
   return {
@@ -608,7 +621,7 @@ async function mirrorRestoredProductMedia({ slug, image, video, gallery, stats }
       resourceType: "video",
       stats
     })
-  };
+  }
 }
 
 async function mirrorRemoteAsset(sourceUrl, { slug, index, resourceType, stats }) {
@@ -654,30 +667,6 @@ async function mirrorRemoteAsset(sourceUrl, { slug, index, resourceType, stats }
     uploadError.cause = error;
     throw uploadError;
   }
-}
-
-function assertCloudinaryRestoreConfigured() {
-  const status = cloudinaryConfigStatus();
-  if (status.configured) return;
-  const error = new Error(
-    "Cloudinary restore is not configured correctly. Set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET before restoring live products."
-  );
-  error.status = 500;
-  error.details = status;
-  throw error;
-}
-
-function cloudinaryConfigStatus() {
-  const cloudName = process.env.CLOUDINARY_CLOUD_NAME || "";
-  const validCloudName = /^[a-z0-9][a-z0-9_-]*$/.test(cloudName) && cloudName.length >= 5;
-  return {
-    configured: Boolean(validCloudName && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET),
-    cloudNamePresent: Boolean(cloudName),
-    cloudNameLength: cloudName.length,
-    cloudNameFormatValid: validCloudName,
-    apiKeyPresent: Boolean(process.env.CLOUDINARY_API_KEY),
-    apiSecretPresent: Boolean(process.env.CLOUDINARY_API_SECRET)
-  };
 }
 
 function isRemoteHttpUrl(value) {
