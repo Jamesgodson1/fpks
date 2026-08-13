@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-const sourcePath = path.join("live products", "fuelpack-live-home.html");
+const sourcePath = process.argv.includes("--input")
+  ? process.argv[process.argv.indexOf("--input") + 1]
+  : path.join("live products", "fuelpack-live-home.html");
 const outputPath = path.join("live products", "fuelpack-live-products.csv");
 const html = fs.readFileSync(sourcePath, "utf8");
 const chunks = [];

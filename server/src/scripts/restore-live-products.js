@@ -14,8 +14,9 @@ const response = {
 };
 
 try {
+  const query = restoreQueryFromArgs(process.argv.slice(2));
   await restoreLiveProducts(
-    { query: {}, body: {}, get: () => "" },
+    { query, body: {}, get: () => "" },
     response,
     (error) => {
       if (error) throw error;
@@ -26,4 +27,16 @@ try {
   process.exitCode = 1;
 } finally {
   await mysqlPool.end();
+}
+
+function restoreQueryFromArgs(args) {
+  const query = {};
+
+  for (const arg of args) {
+    const [key, value] = arg.replace(/^--/, "").split("=");
+    if (key === "limit") query.restoreLimit = value || "20";
+    if (key === "offset") query.restoreOffset = value || "0";
+  }
+
+  return query;
 }

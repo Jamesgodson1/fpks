@@ -4,6 +4,7 @@ import {
   createOrder,
   createProduct,
   deleteProduct,
+  finalizeLiveProductRestore,
   getAdminAnalytics,
   getAdminStorefront,
   getStorefront,
@@ -37,6 +38,7 @@ adminRouter.get("/analytics", getAdminAnalytics);
 adminRouter.put("/settings", updateSettings);
 adminRouter.put("/content", updateContent);
 adminRouter.post("/products/cleanup-restored", cleanupRestoredProducts);
+adminRouter.post("/products/finalize-live-restore", finalizeLiveProductRestore);
 adminRouter.post("/products", createProduct);
 adminRouter.put("/products/:id", updateProduct);
 adminRouter.delete("/products/:id", deleteProduct);

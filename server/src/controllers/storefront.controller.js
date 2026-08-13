@@ -1,10 +1,13 @@
 import fs from "node:fs/promises";
-import crypto from "node:crypto";
 import path from "node:path";
-import { cloudinary } from "../config/cloudinary.js";
 import { dbExecute, dbQuery, ensureAppSchema } from "../config/mysql.js";
-import { assertCloudinaryRestoreAccess } from "../lib/cloudinaryRestore.js";
 import { cleanRestoredProductRow, mainCategoryPayloads } from "../lib/restoredCatalogCleanup.js";
+import {
+  assertRestoreMediaStorageAccess,
+  isManagedRestoreMediaUrl,
+  restoreMediaBackend,
+  uploadRemoteRestoreAsset
+} from "../lib/restoreMediaStorage.js";
 
 const productJsonFields = new Set(["gallery", "variants", "hues"]);
 const orderJsonFields = new Set(["items"]);
@@ -278,16 +281,20 @@ export async function restoreLiveProducts(req, res, next) {
     const csvPath = path.resolve(process.cwd(), "live products", "fuelpack-live-products.csv");
     const rows = parseCsv(await fs.readFile(csvPath, "utf8"));
     const mediaValidation = validateRestoredProductMedia(rows);
-    await assertCloudinaryRestoreAccess();
+    const restorePaging = restoredProductPaging(req.query || {});
+    const restoreRows = restorePaging.limited ? rows.slice(restorePaging.offset, restorePaging.offset + restorePaging.limit) : rows;
+    await assertRestoreMediaStorageAccess();
     await ensureAppSchema();
     let created = 0;
     let updated = 0;
+    let deactivated = 0;
     const categoryCounts = new Map();
+    const restoredSlugs = [];
     const mediaStats = {
       imageUploads: 0,
       videoUploads: 0,
-      existingCloudinaryImages: 0,
-      existingCloudinaryVideos: 0,
+      existingManagedImages: 0,
+      existingManagedVideos: 0,
       preservedExistingImages: 0,
       preservedExistingVideos: 0,
       failedGalleryImages: 0
@@ -296,9 +303,11 @@ export async function restoreLiveProducts(req, res, next) {
       (await dbQuery("SELECT slug, image, gallery, video FROM `StoreProduct`")).map((product) => [product.slug, product])
     );
 
-    for (const [index, row] of rows.entries()) {
-      const cleanRow = cleanRestoredProductRow(row, index);
+    for (const [index, row] of restoreRows.entries()) {
+      const sourceIndex = restorePaging.offset + index;
+      const cleanRow = cleanRestoredProductRow(row, sourceIndex);
       const slug = cleanRow.slug || slugify(cleanRow.title);
+      restoredSlugs.push(slug);
       categoryCounts.set(cleanRow.categorySlug, (categoryCounts.get(cleanRow.categorySlug) || 0) + 1);
       const media = await mirrorRestoredProductMedia({
         slug,
@@ -338,7 +347,7 @@ export async function restoreLiveProducts(req, res, next) {
         ),
         productJsonFields
       );
-      const result = await upsertByUnique("StoreProduct", payload, "slug");
+      const result = await withRestoreWriteRetry(() => upsertByUnique("StoreProduct", payload, "slug"));
       if (result.insertId) {
         created += 1;
       } else {
@@ -346,20 +355,42 @@ export async function restoreLiveProducts(req, res, next) {
       }
     }
 
-    for (const categoryPayload of mainCategoryPayloads()) {
-      await upsertByUnique("StoreCategory", categoryPayload, "slug");
+    if (!restorePaging.limited && restoredSlugs.length) {
+      const placeholders = restoredSlugs.map(() => "?").join(", ");
+      const result = await withRestoreWriteRetry(() =>
+        dbExecute(
+          `UPDATE \`StoreProduct\` SET status = ? WHERE slug NOT IN (${placeholders})`,
+          ["inactive", ...restoredSlugs]
+        )
+      );
+      deactivated = result.affectedRows || 0;
     }
-    await deleteNonMainCategories(mainCategoryPayloads().map((category) => category.slug));
+
+    if (!restorePaging.limited) {
+      for (const categoryPayload of mainCategoryPayloads()) {
+        await withRestoreWriteRetry(() => upsertByUnique("StoreCategory", categoryPayload, "slug"));
+      }
+      await withRestoreWriteRetry(() => deleteNonMainCategories(mainCategoryPayloads().map((category) => category.slug)));
+    }
 
     res.json({
       message: "Live products restored from CSV.",
       source: csvPath,
-      total: rows.length,
+      total: restoreRows.length,
+      sourceTotal: rows.length,
+      offset: restorePaging.offset,
+      limit: restorePaging.limit || null,
+      hasMore: restorePaging.limited && restorePaging.offset + restoreRows.length < rows.length,
+      nextOffset: restorePaging.limited && restorePaging.offset + restoreRows.length < rows.length
+        ? restorePaging.offset + restoreRows.length
+        : null,
       created,
       updated,
+      deactivated,
       categories: mainCategoryPayloads().length,
       categoryCounts: Object.fromEntries(categoryCounts.entries()),
       media: {
+        backend: restoreMediaBackend(),
         ...mediaValidation,
         ...mediaStats
       }
@@ -410,6 +441,45 @@ export async function cleanupRestoredProducts(req, res, next) {
       updated,
       categories: mainCategories.length,
       categoryCounts: Object.fromEntries(categoryCounts.entries())
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function finalizeLiveProductRestore(req, res, next) {
+  try {
+    const csvPath = path.resolve(process.cwd(), "live products", "fuelpack-live-products.csv");
+    const rows = parseCsv(await fs.readFile(csvPath, "utf8"));
+    await ensureAppSchema();
+    const restoredSlugs = rows.map((row, index) => {
+      const cleanRow = cleanRestoredProductRow(row, index);
+      return cleanRow.slug || slugify(cleanRow.title);
+    });
+    let deactivated = 0;
+
+    if (restoredSlugs.length) {
+      const placeholders = restoredSlugs.map(() => "?").join(", ");
+      const result = await withRestoreWriteRetry(() =>
+        dbExecute(
+          `UPDATE \`StoreProduct\` SET status = ? WHERE slug NOT IN (${placeholders})`,
+          ["inactive", ...restoredSlugs]
+        )
+      );
+      deactivated = result.affectedRows || 0;
+    }
+
+    for (const categoryPayload of mainCategoryPayloads()) {
+      await withRestoreWriteRetry(() => upsertByUnique("StoreCategory", categoryPayload, "slug"));
+    }
+    await withRestoreWriteRetry(() => deleteNonMainCategories(mainCategoryPayloads().map((category) => category.slug)));
+
+    res.json({
+      message: "Live product restore finalized.",
+      source: csvPath,
+      sourceTotal: rows.length,
+      categories: mainCategoryPayloads().length,
+      deactivated
     });
   } catch (error) {
     next(error);
@@ -480,6 +550,18 @@ function storefrontProductPaging(query) {
     limited: limit > 0,
     sql: limit > 0 ? " LIMIT ? OFFSET ?" : "",
     params: limit > 0 ? [limit, offset] : []
+  };
+}
+
+function restoredProductPaging(query) {
+  const rawLimit = Number(query.restoreLimit ?? query.limit ?? 0);
+  const limit = rawLimit > 0 ? Math.min(Math.max(rawLimit, 1), 121) : 0;
+  const offset = Math.max(Number(query.restoreOffset ?? query.offset ?? 0), 0);
+
+  return {
+    limit,
+    offset,
+    limited: limit > 0
   };
 }
 
@@ -679,7 +761,7 @@ function preservableExistingImages(product) {
 function isPreservableMediaUrl(url) {
   const normalized = normalizeMediaUrl(url);
   if (!normalized || isFallbackProductImage(normalized)) return false;
-  return normalized.startsWith("/") || isCloudinaryUrl(normalized);
+  return normalized.startsWith("/") || isManagedRestoreMediaUrl(normalized);
 }
 
 function isFallbackProductImage(url) {
@@ -689,42 +771,26 @@ function isFallbackProductImage(url) {
 async function mirrorRemoteAsset(sourceUrl, { slug, index, resourceType, stats }) {
   const url = normalizeMediaUrl(sourceUrl);
   if (!url) return null;
-  if (isCloudinaryUrl(url)) {
-    if (resourceType === "image") stats.existingCloudinaryImages += 1;
-    if (resourceType === "video") stats.existingCloudinaryVideos += 1;
+  if (isManagedRestoreMediaUrl(url)) {
+    if (resourceType === "image") stats.existingManagedImages += 1;
+    if (resourceType === "video") stats.existingManagedVideos += 1;
     return url;
   }
 
-  const folder = process.env.CLOUDINARY_RESTORE_FOLDER || "fuelspack/restored-products";
-  const publicId = `${folder}/${slug}-${resourceType}-${index}-${shortHash(url)}`;
-
   try {
-    const result = await cloudinary.uploader.upload(url, {
-      public_id: publicId,
-      overwrite: false,
-      resource_type: resourceType,
-      eager:
-        resourceType === "image"
-          ? [
-              { width: 480, crop: "limit", fetch_format: "webp", quality: "auto" },
-              { width: 480, crop: "limit", fetch_format: "avif", quality: "auto" }
-            ]
-          : undefined
+    const resultUrl = await uploadRemoteRestoreAsset(url, {
+      slug,
+      index,
+      resourceType,
+      stats
     });
-    if (resourceType === "image") stats.imageUploads += 1;
-    if (resourceType === "video") stats.videoUploads += 1;
-    return result.secure_url || url;
-  } catch (error) {
-    if (error?.http_code === 409) {
-      if (resourceType === "image") stats.existingCloudinaryImages += 1;
-      if (resourceType === "video") stats.existingCloudinaryVideos += 1;
-      return cloudinary.url(publicId, {
-        secure: true,
-        resource_type: resourceType,
-        type: "upload"
-      });
+    if (restoreMediaBackend() !== "cloudinary") {
+      if (resourceType === "image") stats.imageUploads += 1;
+      if (resourceType === "video") stats.videoUploads += 1;
     }
-    const uploadError = new Error(`Cloudinary ${resourceType} upload failed for ${slug}: ${error.message}`);
+    return resultUrl;
+  } catch (error) {
+    const uploadError = new Error(`${restoreMediaBackend()} ${resourceType} upload failed for ${slug}: ${error.message}`);
     uploadError.status = 502;
     uploadError.cause = error;
     throw uploadError;
@@ -738,18 +804,6 @@ function isRemoteHttpUrl(value) {
   } catch {
     return false;
   }
-}
-
-function isCloudinaryUrl(value) {
-  try {
-    return new URL(value).hostname.endsWith("cloudinary.com");
-  } catch {
-    return false;
-  }
-}
-
-function shortHash(value) {
-  return crypto.createHash("sha1").update(value).digest("hex").slice(0, 10);
 }
 
 function optimizeProductForSeo(product) {
@@ -1046,6 +1100,40 @@ async function deleteNonMainCategories(slugs) {
   if (!slugs.length) return;
   const placeholders = slugs.map(() => "?").join(", ");
   await dbExecute(`DELETE FROM \`StoreCategory\` WHERE slug NOT IN (${placeholders})`, slugs);
+}
+
+async function withRestoreWriteRetry(operation, attempts = Number(process.env.RESTORE_DB_WRITE_ATTEMPTS || 5)) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isTransientRestoreDbError(error) || attempt === attempts) {
+        throw error;
+      }
+      await wait(750 * attempt);
+    }
+  }
+
+  throw lastError;
+}
+
+function isTransientRestoreDbError(error) {
+  return [
+    "ECONNRESET",
+    "ETIMEDOUT",
+    "EAI_AGAIN",
+    "PROTOCOL_CONNECTION_LOST",
+    "ER_TOO_MANY_USER_CONNECTIONS"
+  ].includes(error?.code);
+}
+
+function wait(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function upsertSingleton(table, data) {
