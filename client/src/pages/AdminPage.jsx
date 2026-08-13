@@ -17,6 +17,7 @@ import {
 } from "../lib/storefrontApi";
 import { fallbackStorefront } from "../data/storefrontData";
 import { scoreProductSeo } from "../lib/seo";
+import { ProductMediaImage } from "../components/storefront/ProductMediaImage";
 
 const emptyProduct = {
   title: "",
@@ -396,7 +397,7 @@ export function AdminPage() {
               <div className="admin-product-list">
                 {paginatedProducts.map((product) => (
                   <article className="admin-product-card" key={product.id || product.title}>
-                    <img src={product.image || "/fuelpack-assets/logo.jpeg"} alt="" />
+                    <ProductMediaImage sources={product.image} alt="" sizes="64px" />
                     <div>
                       <strong>{product.title}</strong>
                       <span>{product.category} · ${Number(product.price || 0).toFixed(2)} · Stock {product.inventory || 0}</span>

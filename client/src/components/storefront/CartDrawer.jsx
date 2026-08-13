@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ProductMediaImage } from "./ProductMediaImage";
 
 const telegramUsername = String(import.meta.env.VITE_TELEGRAM_ORDER_USERNAME || "")
   .replace(/^@/, "")
@@ -111,7 +112,7 @@ export function CartDrawer({ cart, open, onClose, onRemove, onQuantity, onOrderP
             <div className="fp-cart-lines">
               {cart.map((item) => (
                 <article className="fp-cart-line" key={item.cartId}>
-                  <img src={item.image || "/fuelpack-assets/logo.jpeg"} alt="" />
+                  <ProductMediaImage sources={item.image} alt="" sizes="72px" />
                   <div>
                     <h3>{item.title}</h3>
                     <p>{item.selectedVariant?.name || item.category}</p>

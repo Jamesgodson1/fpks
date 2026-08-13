@@ -287,24 +287,32 @@ export async function restoreLiveProducts(req, res, next) {
       imageUploads: 0,
       videoUploads: 0,
       existingCloudinaryImages: 0,
-      existingCloudinaryVideos: 0
+      existingCloudinaryVideos: 0,
+      preservedExistingImages: 0,
+      preservedExistingVideos: 0,
+      failedGalleryImages: 0
     };
+    const existingProducts = new Map(
+      (await dbQuery("SELECT slug, image, gallery, video FROM `StoreProduct`")).map((product) => [product.slug, product])
+    );
 
     for (const [index, row] of rows.entries()) {
       const cleanRow = cleanRestoredProductRow(row, index);
+      const slug = cleanRow.slug || slugify(cleanRow.title);
       categoryCounts.set(cleanRow.categorySlug, (categoryCounts.get(cleanRow.categorySlug) || 0) + 1);
       const media = await mirrorRestoredProductMedia({
-        slug: cleanRow.slug || slugify(cleanRow.title),
+        slug,
         image: cleanRow.image,
         video: cleanRow.video,
         gallery: parseJson(cleanRow.gallery, []),
+        existingProduct: existingProducts.get(slug),
         stats: mediaStats
       });
       const payload = serializeData(
         optimizeProductForSeo(
           normalizeProductPayload({
             title: cleanRow.title,
-            slug: cleanRow.slug || slugify(cleanRow.title),
+            slug,
             category: cleanRow.category,
             categorySlug: cleanRow.categorySlug,
             price: cleanRow.price,
@@ -586,42 +594,96 @@ function validateRestoredProductMedia(rows) {
   };
 }
 
-async function mirrorRestoredProductMedia({ slug, image, video, gallery, stats }) {
+async function mirrorRestoredProductMedia({ slug, image, video, gallery, existingProduct, stats }) {
   const galleryItems = normalizeMediaArray(gallery);
   const imageItems = Array.from(new Set([image, ...galleryItems].map(normalizeMediaUrl).filter(Boolean)));
-  const mirroredImages = [];
+  const mirroredGalleryImages = [];
   const imageErrors = [];
+  const primaryImageUrl = imageItems[0] || "";
+  let mirroredPrimaryImage = "";
 
   for (const [index, url] of imageItems.entries()) {
     try {
-      mirroredImages.push(await mirrorRemoteAsset(url, {
+      const mirroredImage = await mirrorRemoteAsset(url, {
         slug,
         index,
         resourceType: "image",
         stats
-      }));
+      });
+      if (index === 0) {
+        mirroredPrimaryImage = mirroredImage;
+      } else {
+        mirroredGalleryImages.push(mirroredImage);
+      }
     } catch (error) {
       imageErrors.push(error.message);
+      if (url !== primaryImageUrl) stats.failedGalleryImages += 1;
     }
   }
 
-  if (!mirroredImages.filter(Boolean).length) {
-    const error = new Error(`No product image could be uploaded to Cloudinary for ${slug}.`);
+  let primaryImage = mirroredPrimaryImage;
+  if (!primaryImage) {
+    primaryImage = firstPreservableExistingImage(existingProduct);
+    if (primaryImage) stats.preservedExistingImages += 1;
+  }
+
+  if (!primaryImage) {
+    const error = new Error(`Primary product image could not be uploaded or safely preserved for ${slug}.`);
     error.status = 502;
-    error.details = { slug, imageErrors };
+    error.details = {
+      slug,
+      primaryImageUrl,
+      imageErrors
+    };
     throw error;
   }
 
+  const existingImages = preservableExistingImages(existingProduct);
+  const imageSet = new Set([primaryImage, ...mirroredGalleryImages.filter(Boolean), ...existingImages]);
+
   return {
-    image: mirroredImages[0],
-    gallery: mirroredImages.filter(Boolean),
-    video: await mirrorRemoteAsset(video, {
+    image: primaryImage,
+    gallery: Array.from(imageSet),
+    video: await mirrorRestoredVideo({ slug, video, existingProduct, stats })
+  }
+}
+
+async function mirrorRestoredVideo({ slug, video, existingProduct, stats }) {
+  try {
+    return await mirrorRemoteAsset(video, {
       slug,
       index: 0,
       resourceType: "video",
       stats
-    })
+    });
+  } catch (error) {
+    const existingVideo = normalizeMediaUrl(existingProduct?.video);
+    if (isPreservableMediaUrl(existingVideo)) {
+      stats.preservedExistingVideos += 1;
+      return existingVideo;
+    }
+    throw error;
   }
+}
+
+function firstPreservableExistingImage(product) {
+  return preservableExistingImages(product)[0] || "";
+}
+
+function preservableExistingImages(product) {
+  if (!product) return [];
+  const candidates = normalizeMediaArray([product.image, ...normalizeJson(product.gallery, [])]);
+  return Array.from(new Set(candidates.filter(isPreservableMediaUrl)));
+}
+
+function isPreservableMediaUrl(url) {
+  const normalized = normalizeMediaUrl(url);
+  if (!normalized || isFallbackProductImage(normalized)) return false;
+  return normalized.startsWith("/") || isCloudinaryUrl(normalized);
+}
+
+function isFallbackProductImage(url) {
+  return normalizeMediaUrl(url) === "/fuelpack-assets/logo.jpeg";
 }
 
 async function mirrorRemoteAsset(sourceUrl, { slug, index, resourceType, stats }) {

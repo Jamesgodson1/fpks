@@ -24,25 +24,28 @@ export function ProductMediaImage({
   }, [sources]);
   const candidateKey = candidates.join("|");
   const [index, setIndex] = useState(0);
+  const [failedSrcSet, setFailedSrcSet] = useState(false);
   const src = candidates[index] || FALLBACK_IMAGE;
 
   useEffect(() => {
     setIndex(0);
+    setFailedSrcSet(false);
   }, [candidateKey]);
 
-  const avifSrcSet = productImageFormatSrcSet(src, "avif");
-  const webpSrcSet = productImageFormatSrcSet(src, "webp");
+  const avifSrcSet = failedSrcSet ? undefined : productImageFormatSrcSet(src, "avif");
+  const webpSrcSet = failedSrcSet ? undefined : productImageFormatSrcSet(src, "webp");
   const img = (
     <img
       className={className}
       src={src}
-      srcSet={productImageSrcSet(src)}
+      srcSet={failedSrcSet ? undefined : productImageSrcSet(src)}
       sizes={sizes}
       alt={alt}
       loading={priority ? "eager" : loading}
       fetchPriority={priority ? "high" : "auto"}
       decoding="async"
       onError={() => {
+        setFailedSrcSet(true);
         setIndex((value) => Math.min(value + 1, candidates.length - 1));
       }}
     />

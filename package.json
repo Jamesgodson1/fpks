@@ -16,6 +16,8 @@
     "verify:cloudinary": "node server/src/scripts/verify-cloudinary.js",
     "restore:live": "node server/src/scripts/restore-live-products.js",
     "cleanup:restored": "node server/src/scripts/cleanup-restored-products.js",
+    "audit:db-media": "node server/src/scripts/audit-db-product-media.js",
+    "repair:product-media": "node server/src/scripts/repair-product-media.js",
     "lint": "eslint ."
   },
   "dependencies": {
