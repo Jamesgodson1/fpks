@@ -35,7 +35,7 @@ export function Header({ settings, categories, cartCount, active = "HOME", onCar
           <span>{settings.brandName}</span>
         </a>
         <nav className="fp-main-nav" aria-label="Main navigation">
-          {["HOME", "MENU", "FAQ"].map((item) => (
+          {["HOME", "MENU", "DEALS", "FAQ"].map((item) => (
             <a className={active === item ? "active" : ""} href={item === "HOME" ? "/" : `/${item.toLowerCase()}`} key={item}>
               {item}
             </a>

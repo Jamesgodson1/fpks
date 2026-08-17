@@ -12,6 +12,7 @@ import {
   truncate
 } from "./lib/seo";
 import { AdminPage } from "./pages/AdminPage";
+import { DealsPage } from "./pages/DealsPage";
 import { FaqPage } from "./pages/FaqPage";
 import { HomePage } from "./pages/HomePage";
 import { MenuPage } from "./pages/MenuPage";
@@ -59,7 +60,7 @@ export default function App() {
   }, [cartToast]);
 
   const cartCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
-  const active = path.startsWith("/menu") ? "MENU" : path.startsWith("/faq") ? "FAQ" : "HOME";
+  const active = path.startsWith("/menu") ? "MENU" : path.startsWith("/deals") ? "DEALS" : path.startsWith("/faq") ? "FAQ" : "HOME";
   const categorySlug = path.startsWith("/menu/") ? path.split("/menu/")[1] : "all";
   const activeCategory = storefront.categories.find((category) => category.slug === categorySlug);
   const menuProducts =
@@ -150,6 +151,8 @@ export default function App() {
       >
         {path.startsWith("/products/") ? (
           <ProductPage storefront={storefront} slug={path.split("/products/")[1]} onAdd={addToCart} />
+        ) : path.startsWith("/deals") ? (
+          <DealsPage />
         ) : path.startsWith("/faq") ? (
           <FaqPage storefront={storefront} />
         ) : path.startsWith("/menu") ? (
@@ -237,6 +240,21 @@ function buildSeoPage({ path, storefront, activeProduct, activeCategory, product
           { name: "FAQ", url: "/faq" }
         ]),
         buildFaqSchema(storefront.faqs)
+      ]
+    };
+  }
+
+  if (path.startsWith("/deals")) {
+    return {
+      path: "/deals",
+      title: `Deals — ${settings.brandName}`,
+      description: "The Fuel Packs loyalty program plus current payment deals — crypto and cash discounts on bulk orders.",
+      schemas: [
+        ...baseSchemas,
+        buildBreadcrumbSchema([
+          { name: "Home", url: "/" },
+          { name: "Deals", url: "/deals" }
+        ])
       ]
     };
   }
