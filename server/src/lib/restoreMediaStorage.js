@@ -27,6 +27,25 @@ export async function uploadRemoteRestoreAsset(sourceUrl, options) {
   });
 }
 
+export function cloudinaryRestoreUrl(sourceUrl, { slug, index, resourceType }) {
+  const folder = process.env.CLOUDINARY_RESTORE_FOLDER || "fuelspack/restored-products";
+  const publicId = `${folder}/${slug}-${resourceType}-${index}-${shortHash(sourceUrl)}`;
+  return cloudinary.url(publicId, {
+    secure: true,
+    resource_type: resourceType,
+    type: "upload"
+  });
+}
+
+export async function findCloudinaryRestoreAssetUrl(sourceUrl, { slug, index, resourceType }) {
+  const folder = process.env.CLOUDINARY_RESTORE_FOLDER || "fuelspack/restored-products";
+  const publicId = `${folder}/${slug}-${resourceType}-${index}-${shortHash(sourceUrl)}`;
+  const asset = await cloudinary.api.resource(publicId, {
+    resource_type: resourceType
+  });
+  return asset.secure_url || "";
+}
+
 export function isManagedRestoreMediaUrl(value) {
   return isCloudinaryUrl(value);
 }
@@ -34,22 +53,31 @@ export function isManagedRestoreMediaUrl(value) {
 async function uploadRemoteAssetToCloudinary(sourceUrl, { slug, index, resourceType, stats }) {
   const folder = process.env.CLOUDINARY_RESTORE_FOLDER || "fuelspack/restored-products";
   const publicId = `${folder}/${slug}-${resourceType}-${index}-${shortHash(sourceUrl)}`;
+  const existingUrl = await findExistingCloudinaryAssetUrl(publicId, resourceType);
+  if (existingUrl) {
+    if (resourceType === "image") stats.existingManagedImages += 1;
+    if (resourceType === "video") stats.existingManagedVideos += 1;
+    return existingUrl;
+  }
 
   try {
-    const asset = await fetchRemoteAsset(sourceUrl, resourceType);
-    const result = await uploadBufferToCloudinary(asset.body, {
-      public_id: publicId,
-      overwrite: false,
-      resource_type: resourceType,
-      content_type: asset.contentType,
-      eager:
-        resourceType === "image"
-          ? [
-              { width: 480, crop: "limit", fetch_format: "webp", quality: "auto" },
-              { width: 480, crop: "limit", fetch_format: "avif", quality: "auto" }
-            ]
-          : undefined
-    });
+    const result = resourceType === "video"
+      ? await uploadRemoteUrlToCloudinary(sourceUrl, {
+          public_id: publicId,
+          overwrite: false,
+          resource_type: resourceType,
+          timeout: cloudinaryUploadTimeout()
+        })
+      : await uploadImageBufferToCloudinary(sourceUrl, {
+          public_id: publicId,
+          overwrite: false,
+          resource_type: resourceType,
+          timeout: cloudinaryUploadTimeout(),
+          eager: [
+            { width: 480, crop: "limit", fetch_format: "webp", quality: "auto" },
+            { width: 480, crop: "limit", fetch_format: "avif", quality: "auto" }
+          ]
+        });
 
     if (resourceType === "image") stats.imageUploads += 1;
     if (resourceType === "video") stats.videoUploads += 1;
@@ -58,22 +86,35 @@ async function uploadRemoteAssetToCloudinary(sourceUrl, { slug, index, resourceT
     if (error?.http_code === 409) {
       if (resourceType === "image") stats.existingManagedImages += 1;
       if (resourceType === "video") stats.existingManagedVideos += 1;
-      return cloudinary.url(publicId, {
-        secure: true,
-        resource_type: resourceType,
-        type: "upload"
-      });
+      return findExistingCloudinaryAssetUrl(publicId, resourceType);
     }
-    throw error;
+    throw new Error(error?.message || error?.error?.message || `Cloudinary ${resourceType} upload failed without details.`);
   }
 }
 
-async function fetchRemoteAsset(sourceUrl, resourceType) {
+async function uploadImageBufferToCloudinary(sourceUrl, options) {
+  const asset = await fetchRemoteAsset(sourceUrl);
+  return uploadBufferToCloudinary(asset.body, {
+    ...options,
+    content_type: asset.contentType
+  });
+}
+
+function uploadRemoteUrlToCloudinary(sourceUrl, options) {
+  return cloudinary.uploader.upload(sourceUrl, options);
+}
+
+async function fetchRemoteAsset(sourceUrl) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Number(process.env.RESTORE_SOURCE_FETCH_TIMEOUT_MS || 45000));
   const response = await fetch(sourceUrl, {
+    signal: controller.signal,
     headers: {
-      accept: resourceType === "video" ? "video/*,*/*" : "image/*,*/*",
+      accept: "image/*,*/*",
       "user-agent": "Mozilla/5.0 FuelspackRestore/1.0"
     }
+  }).finally(() => {
+    clearTimeout(timeout);
   });
 
   if (!response.ok) {
@@ -82,7 +123,7 @@ async function fetchRemoteAsset(sourceUrl, resourceType) {
 
   return {
     body: Buffer.from(await response.arrayBuffer()),
-    contentType: response.headers.get("content-type") || (resourceType === "video" ? "video/mp4" : "image/jpeg")
+    contentType: response.headers.get("content-type") || "image/jpeg"
   };
 }
 
@@ -97,6 +138,22 @@ function uploadBufferToCloudinary(buffer, options) {
     });
     Readable.from(buffer).pipe(upload);
   });
+}
+
+function cloudinaryUploadTimeout() {
+  return Number(process.env.CLOUDINARY_UPLOAD_TIMEOUT_MS || 180000);
+}
+
+async function findExistingCloudinaryAssetUrl(publicId, resourceType) {
+  try {
+    const asset = await cloudinary.api.resource(publicId, {
+      resource_type: resourceType
+    });
+    return asset.secure_url || "";
+  } catch (error) {
+    if (error?.http_code === 404) return "";
+    throw error;
+  }
 }
 
 function isCloudinaryUrl(value) {
