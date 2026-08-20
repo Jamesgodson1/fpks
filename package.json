@@ -16,6 +16,7 @@
     "audit:restore-coverage": "node server/src/scripts/audit-live-restore-coverage.js",
     "fetch:live-products": "node server/src/scripts/fetch-live-products-html.js",
     "export:live-products": "node scripts/export-live-products.mjs",
+    "generate:sitemap": "node server/src/scripts/generate-sitemap.js",
     "verify:restore-media": "node server/src/scripts/verify-restore-media-storage.js",
     "verify:cloudinary": "node server/src/scripts/verify-cloudinary.js",
     "restore:live": "node server/src/scripts/restore-live-products.js",
