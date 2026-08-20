@@ -15,7 +15,7 @@ export function Footer({ settings }) {
         <div>
           <h2>CONTACT</h2>
           <p>
-            <a className="fp-signal-link" href="https://signal.me" target="_blank" rel="noopener noreferrer">
+            <a className="fp-signal-link" href="https://signal.me/#eu/7Tr9iPdHr2Gn0c4F-TW42mEHKhWU4NwzFU0hjH-K6FX1HrrwwddHfowuZFfZvZ5E" target="_blank" rel="noopener noreferrer">
               Contact us on Signal
             </a>
             <br />
