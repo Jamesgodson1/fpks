@@ -2,7 +2,7 @@ import "dotenv/config";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const sourceUrl = process.env.LIVE_PRODUCTS_URL || "https://fuelpack.store/";
+const sourceUrl = process.env.LIVE_PRODUCTS_URL || "https://fuelpacks.store/";
 const outputPath = path.resolve(process.cwd(), "live products", "fuelpack-live-home.html");
 
 const response = await fetch(sourceUrl, {

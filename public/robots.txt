@@ -4,4 +4,4 @@ Allow: /
 User-agent: *
 Allow: /
 
-Sitemap: https://fuelpack.store/sitemap.xml
+Sitemap: https://fuelpacks.store/sitemap.xml

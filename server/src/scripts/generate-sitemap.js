@@ -72,7 +72,7 @@ async function resolveBaseUrl() {
     // Fall through to the public production domain.
   }
 
-  return "https://fuelpack.store/";
+  return "https://fuelpacks.store/";
 }
 
 function normalizeBaseUrl(value) {
