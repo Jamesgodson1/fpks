@@ -418,6 +418,10 @@ button {
   gap: 16px;
 }
 
+.fp-specials-slider .fp-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .fp-empty-products {
   border: 1px solid var(--border);
   background: #fff;

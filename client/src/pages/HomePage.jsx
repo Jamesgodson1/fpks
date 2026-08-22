@@ -58,35 +58,28 @@ function OrderBand() {
 
 function SpecialsBand({ products, onAdd }) {
   const specialProducts = products.filter((product) => product.categorySlug === "special-deals");
-  const featured = (specialProducts.length ? specialProducts : products).slice(0, 4);
+  const featured = (specialProducts.length ? specialProducts : products).slice(0, 3);
 
   if (!featured.length) {
     return null;
   }
 
   return (
-    <section className="fp-specials-band">
-      <div className="fp-special-stripes" aria-hidden="true" />
-      <div className="fp-container">
-        <div className="fp-special-head">
-          <div>
-            <div className="fp-kicker small">
-              <span />
-              SPECIAL DEALS - LIMITED SUPPLY
-            </div>
-            <h2>
-              Make room
-              <br />
-              <span>for the refill</span>
-            </h2>
+    <section className="fp-drops fp-drops-home fp-specials-slider">
+      <div className="fp-section-head">
+        <div>
+          <div className="fp-kicker small">
+            <span />
+            SPECIAL DEALS - LIMITED SUPPLY
           </div>
-          <a href="/menu/special-deals">SEE ALL DEALS -&gt;</a>
+          <h2>Make room for the refill</h2>
         </div>
-        <div className="fp-special-grid">
-          {featured.map((product) => (
-            <ProductCard product={product} onAdd={onAdd} key={product.id || product.slug || product.title} />
-          ))}
-        </div>
+        <a href="/menu/special-deals">SEE ALL DEALS -&gt;</a>
+      </div>
+      <div className="fp-grid">
+        {featured.map((product) => (
+          <ProductCard product={product} onAdd={onAdd} key={product.id || product.slug || product.title} />
+        ))}
       </div>
     </section>
   );
