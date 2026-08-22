@@ -18,9 +18,11 @@ import { HomePage } from "./pages/HomePage";
 import { MenuPage } from "./pages/MenuPage";
 import { ProductPage } from "./pages/ProductPage";
 
+const CART_STORAGE_KEY = "fuelpacks_cart";
+
 export default function App() {
   const [storefront, setStorefront] = useState(fallbackStorefront);
-  const [cart, setCart] = useState([]);
+  const [cart, setCart] = useState(() => readStoredCart());
   const [cartOpen, setCartOpen] = useState(false);
   const [cartToast, setCartToast] = useState("");
   const path = window.location.pathname;
@@ -59,6 +61,14 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, [cartToast]);
 
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+    } catch {
+      // Cart still works for the current session if storage is unavailable.
+    }
+  }, [cart]);
+
   const cartCount = useMemo(() => cart.reduce((sum, item) => sum + item.quantity, 0), [cart]);
   const active = path.startsWith("/menu") ? "MENU" : path.startsWith("/deals") ? "DEALS" : path.startsWith("/faq") ? "FAQ" : "HOME";
   const categorySlug = path.startsWith("/menu/") ? path.split("/menu/")[1] : "all";
@@ -78,7 +88,7 @@ export default function App() {
     products: menuProducts
   });
 
-  function addToCart(product) {
+  function addToCart(product, quantity = 1) {
     const selectedVariant = product.selectedVariant || product.variants?.[0] || {
       name: "Default",
       price: product.price,
@@ -86,6 +96,7 @@ export default function App() {
     };
     const productKey = product.id || product.slug || product.title;
     const variantKey = selectedVariant.name || "default";
+    const quantityToAdd = Math.max(1, Number(quantity) || 1);
 
     trackAnalyticsEvent({
       type: "add_to_cart",
@@ -97,7 +108,7 @@ export default function App() {
       const existing = items.find((item) => item.cartKey === key);
       if (existing) {
         return items.map((item) =>
-          item.cartKey === key ? { ...item, quantity: item.quantity + 1 } : item
+          item.cartKey === key ? { ...item, quantity: item.quantity + quantityToAdd } : item
         );
       }
       return [
@@ -107,11 +118,11 @@ export default function App() {
           selectedVariant,
           cartKey: key,
           cartId: `${key}-${Date.now()}`,
-          quantity: 1
+          quantity: quantityToAdd
         }
       ];
     });
-    setCartToast(`${product.title || "Product"} added to cart successfully.`);
+    setCartToast(`${quantityToAdd} x ${product.title || "Product"} added to cart successfully.`);
   }
 
   function removeFromCart(cartId) {
@@ -168,6 +179,28 @@ export default function App() {
       ) : null}
     </>
   );
+}
+
+function readStoredCart() {
+  try {
+    const stored = window.localStorage.getItem(CART_STORAGE_KEY);
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map((item) => ({
+        ...item,
+        quantity: Math.max(1, Number(item.quantity) || 1),
+        cartKey: item.cartKey || `${item.id || item.slug || item.title}-${item.selectedVariant?.name || "default"}`,
+        cartId:
+          item.cartId ||
+          `${item.id || item.slug || item.title}-${item.selectedVariant?.name || "default"}-${Date.now()}`
+      }))
+      .filter((item) => item.title);
+  } catch {
+    return [];
+  }
 }
 
 function buildSeoPage({ path, storefront, activeProduct, activeCategory, products }) {

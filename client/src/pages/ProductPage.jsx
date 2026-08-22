@@ -43,9 +43,7 @@ export function ProductPage({ storefront, slug, onAdd }) {
   }
 
   function addSelectedToCart() {
-    for (let index = 0; index < quantity; index += 1) {
-      onAdd({ ...activeProduct, selectedVariant });
-    }
+    onAdd({ ...activeProduct, selectedVariant }, quantity);
   }
 
   return (
